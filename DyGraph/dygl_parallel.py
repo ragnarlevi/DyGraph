@@ -11,9 +11,56 @@ import warnings
 from scipy import optimize
 import time
 import tqdm
+from scipy.stats import chi2, multivariate_normal, multivariate_t
+import scipy.integrate as integrate
 
 from multiprocessing.pool import Pool
 
+from collections import defaultdict
+
+
+def T(u,nu):
+    return np.array([chi2.ppf(u, df = nu[i])/nu[i] for i in range(len(nu))])
+
+def integrand(u,x,nu,i,j, theta):
+
+
+    T_vec = T(u,nu)
+    a = np.diag(np.sqrt(np.reciprocal(T_vec)))
+    cov = np.dot(a,np.linalg.inv(theta)).dot(a)
+    A = np.sqrt(T_vec)
+    return A[i]*A[j]*multivariate_normal.pdf(x, mean =np.zeros(cov.shape[0]), cov = cov)
+
+
+
+def generalized_skew_t(x, cov, nu, gamma = None):
+
+    if gamma is None:
+        gamma = np.zeros(cov.shape[0])
+
+    integrand = lambda u: multivariate_normal.pdf(x, mean = np.dot(np.diag(np.reciprocal(T(u,nu))), gamma), cov = np.dot(np.sqrt(np.diag(np.reciprocal(T(u,nu)))), cov).dot(np.sqrt(np.diag(np.reciprocal(T(u,nu))))))
+    result = integrate.quad(integrand, 0, 1,epsabs = 1e-1, epsrel = 1e-1)
+    return result[0]
+
+def EM_matrix_update(S,theta, nu, x, m):
+
+
+
+    combination_calculated = defaultdict(lambda: None)
+
+    D = np.zeros(shape = theta.shape)
+    for i in range(D.shape[0]):
+        for j in range(i, D.shape[0]):
+            combintaion = ''.join(sorted(str(m[i])+str(m[j])))
+            if combination_calculated[combintaion] is None:
+                print("what")
+                tmp = generalized_skew_t(x, S, nu, gamma = None)
+                D[i,j] =  integrate.quad(integrand, 0, 1 ,args = (x, nu,i,j,theta),epsabs = 1e-1, epsrel = 1e-1)[0]/tmp
+                combination_calculated[combintaion] = D[i,j]
+            else:
+                D[i,j] = combination_calculated[combintaion]
+
+    return np.triu(D,0) + np.triu(D,1).T
 
 
 
@@ -31,7 +78,7 @@ def Gaussian_update(S, A,  eta):
     return np.real(0.5*eta*np.dot(Q, diag_m).dot(Q.T))
 
 
-def inner_em(X,A, theta_init, nu, rho, eta, lik_type = "t", nr_itr = 5, tol = 1e-5):
+def inner_em(X,A, theta_init, nu, rho, eta, groups = None, lik_type = "t", nr_itr = 5, tol = 1e-5):
     """
     EM of theta
     """
@@ -61,6 +108,36 @@ def inner_em(X,A, theta_init, nu, rho, eta, lik_type = "t", nr_itr = 5, tol = 1e
         if iteration == nr_itr:
             warnings.warn("EM algorithm did not converge. Try to increase number of iterations")
         # print(f"{iteration} {fro}")
+
+    elif lik_type == "group-t":
+        
+        d = X.shape[1]
+        iteration = 0
+        theta_pre = theta_init
+        S_pre = np.linalg.inv(theta_pre)
+        while iteration < nr_itr:
+            # E-step
+            x = X
+            S = np.zeros(shape = (d,d))
+            #print("starting E-step")
+            for i in range(x.shape[0]):
+                # print(i)
+                S += np.multiply(np.outer(x[i],x[i]), EM_matrix_update(S_pre, theta_pre,nu,x[i],groups))/float(x.shape[0])
+            # M-step
+            theta_new= Gaussian_update(S, A, eta)
+            #print("E-step finished")
+
+            fro = np.linalg.norm(theta_new - theta_pre)
+            if fro < tol:
+                theta_pre = theta_new.copy()
+                break
+            else:
+                theta_pre = theta_new.copy()
+                S_pre = np.linalg.inv(theta_pre)
+            iteration+=1
+
+        # if iteration == nr_itr:
+        #     warnings.warn("EM algorithm did not converge. Try to increase number of iterations")
     else:
         raise ValueError(f"likelihood {lik_type} not known")
 
@@ -68,7 +145,7 @@ def inner_em(X,A, theta_init, nu, rho, eta, lik_type = "t", nr_itr = 5, tol = 1e
     return theta_new
 
 
-def theta_update(i, A, S , n_t, rho, nr_graphs,lik_type = "gaussian", X = None, nr_em_itr = 5, theta_init = None, nu = None, em_tol = 1e-3):
+def theta_update(i, A, S , n_t, rho, nr_graphs, groups = None, lik_type = "gaussian", X = None, nr_em_itr = 5, theta_init = None, nu = None, em_tol = 1e-3):
     """
     Theta update
 
@@ -83,12 +160,14 @@ def theta_update(i, A, S , n_t, rho, nr_graphs,lik_type = "gaussian", X = None, 
         eta = n_t/rho/2.0
     else:
         eta = n_t/rho/3.0
+
     if lik_type == "gaussian":
         theta = Gaussian_update(S, A, eta)
     elif lik_type == "t":
         theta = inner_em(X, A, theta_init, nu, rho, eta, nr_itr= nr_em_itr, tol = em_tol)
-
-    
+    elif lik_type == "group-t":
+        # print("group-t update")
+        theta = inner_em(X, A, theta_init, nu, rho, eta, groups, lik_type = lik_type, nr_itr= nr_em_itr, tol = em_tol)
     else:
         raise ValueError(f"likelihood {lik_type} not known")
 
@@ -196,7 +275,6 @@ class dygl_parallel():
 
     def fit(self, X,temporal_penalty, lik_type= "gaussian",  nr_workers = 1, verbose = True, time_index = None, **kwargs):
 
-
         if verbose:
             pbar = tqdm.tqdm(total = self.max_iter)
 
@@ -229,6 +307,7 @@ class dygl_parallel():
 
         pool = Pool(nr_workers)
 
+
         if time_index is not None:
             self.graph_time = [time_index[k] for k in range(0, self.nr_graphs*self.obs_per_graph, self.obs_per_graph)]
             assert len(self.graph_time) == self.nr_graphs
@@ -241,35 +320,39 @@ class dygl_parallel():
                 nr_workers = self.nr_graphs
             
             # update theta in parallel
-            
+            # print(f"iteration {self.iteration}")
             if nr_workers >1:
                 # theta_update(i, A, S , n_t, rho,lik_type = "gaussian", X = None, nr_em_itr = 5, theta_init = None, nu = None, em_tol = 1e-3)
-                results = pool.starmap(theta_update, ((i,
-                                                    self.get_A(i), 
-                                                    self.S[i], 
-                                                    self.obs_per_graph_used[i],
-                                                    self.rho, 
-                                                    self.nr_graphs,
-                                                    lik_type,
-                                                    X[self.obs_per_graph*i:(i+1)*self.obs_per_graph],
-                                                    kwargs.get("nr_em_itr", 5),
-                                                    self.theta[i],
-                                                    kwargs.get("nu", 4),
-                                                    kwargs.get("em_tol", 1e-4)) for i in range(self.nr_graphs)))
+                results = pool.starmap(theta_update,((i,
+                                                        self.get_A(i), 
+                                                        self.S[i], 
+                                                        self.obs_per_graph_used[i],
+                                                        self.rho, 
+                                                        self.nr_graphs,
+                                                        kwargs.get("groups", None),
+                                                        lik_type,
+                                                        X[self.obs_per_graph*i:(i+1)*self.obs_per_graph],
+                                                        kwargs.get("nr_em_itr", 5),
+                                                        self.theta[i],
+                                                        kwargs.get("nu", 4),
+                                                        kwargs.get("em_tol", 1e-4)) for i in range(self.nr_graphs)))
                 for result in results:
                     self.theta[result[1]] = result[0]
             else:
                 for i in range(self.nr_graphs):
-                    self.theta[i],_ = theta_update(i,self.get_A(i), self.S[i], 
-                                                    self.obs_per_graph_used[i],
-                                                    self.rho,
-                                                    self.nr_graphs, 
-                                                    lik_type,
-                                                    X[self.obs_per_graph*i:(i+1)*self.obs_per_graph],
-                                                    kwargs.get("nr_em_itr", 5),
-                                                    self.theta[i],
-                                                    kwargs.get("nu", 4),
-                                                    kwargs.get("em_tol", 1e-4))
+                    self.theta[i],_ = theta_update(i,
+                                                        self.get_A(i), 
+                                                        self.S[i], 
+                                                        self.obs_per_graph_used[i],
+                                                        self.rho, 
+                                                        self.nr_graphs,
+                                                        kwargs.get("groups", None),
+                                                        lik_type,
+                                                        X[self.obs_per_graph*i:(i+1)*self.obs_per_graph],
+                                                        kwargs.get("nr_em_itr", 5),
+                                                        self.theta[i],
+                                                        kwargs.get("nu", 4),
+                                                        kwargs.get("em_tol", 1e-4))
 
 
             # update dual in parallel
@@ -294,7 +377,7 @@ class dygl_parallel():
                     E = self.block_wise_reconstruction(A,2*self.kappa/self.rho)
                     self.z12_update(E,i)
                 elif temporal_penalty == "perturbed-node":
-                    Y1,Y2 = self.perturbed_node(self.theta[i], self.theta[i-1], self.u2[i], self.u1[i-1], tol = kwargs.get('p_node_tol', 1e-4), max_iter =  kwargs.get('p_node_max_iter', 1000))
+                    Y1,Y2 = self.perturbed_node(self.theta[i], self.theta[i-1], self.u2[i], self.u1[i-1], tol = kwargs.get('p_node_tol', 1e-5), max_iter =  kwargs.get('p_node_max_iter', 1000))
                     self.z1[i-1] = Y1
                     self.z2[i] = Y2
                 else:
@@ -401,20 +484,23 @@ class dygl_parallel():
             return  np.sum([np.max([np.abs(v[i]) - x, 0]) for i in range(len(v))]) -1
 
         # LOOP OVER COLUMNS
-        E = np.zeros(shape=A.shape)
-        for i in range(A.shape[1]):
-            if np.sum(np.abs(A[:,i])) <= eta:
-                continue
+        if eta > 0.0:
+            E = np.zeros(shape=A.shape)
+            for i in range(A.shape[1]):
+                if np.sum(np.abs(A[:,i])) <= eta:
+                    continue
 
-            l_opt = optimize.bisect(f = f, a = 0, b = np.sum(np.abs(A[:,i]/eta)), args = (A[:,i]/eta,))
+                l_opt = optimize.bisect(f = f, a = 0, b = np.sum(np.abs(A[:,i]/eta)), args = (A[:,i]/eta,), xtol=1e-4)
 
-            E[:,i] = A[:,i] - eta*self.soft_threshold_odd(A[:,i]/eta, l_opt)
+                E[:,i] = A[:,i] - eta*self.soft_threshold_odd(A[:,i]/eta, l_opt)
+        else:
+            E = A.copy()
 
         return E
 
 
 
-    def perturbed_node(self, theta_i, theta_i_1, U_i, U_i_1, tol = 1e-4, max_iter = 1000):
+    def perturbed_node(self, theta_i, theta_i_1, U_i, U_i_1, tol = 1e-5, max_iter = 1000):
         """
         Block-wise reconstruction: l_\infty norm
 
@@ -635,7 +721,7 @@ class dygl_parallel_static():
             self.fro_norm = 0.0
             for i in range(self.nr_graphs):
                 dif = self.theta[i] - thetas_pre[i]
-                self.fro_norm += np.linalg.norm(dif)
+                self.fro_norm += np.linalg.norm(dif)/np.linalg.norm(thetas_pre[i])
             if self.fro_norm < self.tol:
                 break
 
@@ -734,14 +820,14 @@ class dygl_parallel_static():
             if np.sum(np.abs(A[:,i])) <= eta:
                 continue
 
-            l_opt = optimize.bisect(f = f, a = 0, b = np.sum(np.abs(E[:,i]/eta)), args = (E[:,i]/eta,))
+            l_opt = optimize.bisect(f = f, a = 0, b = np.sum(np.abs(E[:,i]/eta)), args = (E[:,i]/eta,)) # xtol=1e-4, rtol=1e-4
 
             E[:,i] = A[:,i] - eta*self.soft_threshold_odd(A[:,i]/eta, l_opt)
 
         return E
 
 
-    def perturbed_node(self, theta_i, theta_i_1, U_i, U_i_1, tol = 1e-4, max_iter = 1000):
+    def perturbed_node(self, theta_i, theta_i_1, U_i, U_i_1, tol = 1e-10, max_iter = 1000):
         """
         Block-wise reconstruction: l_\infty norm
 
