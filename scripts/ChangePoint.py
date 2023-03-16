@@ -90,14 +90,14 @@ S = np.linalg.inv(prec_0)
 if __name__ == '__main__':
 
     alpha = np.linspace(0.01, 0.6,21) # np.concatenate((np.linspace(0.01,0.1,10),np.linspace(0.11,0.45,21)))# np.linspace(0.01,0.61, 16)
-    kappa = np.linspace(0.01, 0.8,21) # np.concatenate((np.linspace(0.01,0.1,10),np.linspace(0.11,0.45,21))) # np.linspace(0,01.61, 16)
+    kappa = np.concatenate((np.linspace(0.01,0.3, 10), [0.35, 0.4, 0.5, 0.6, 0.7, 0.8 ,0.9,1])) # np.concatenate((np.linspace(0.01,0.1,10),np.linspace(0.11,0.45,21))) # np.linspace(0,01.61, 16)
 
 # "element-wise", 'global-reconstruction', 'ridge', 'ridge', "block-wise-reconstruction",
 
-    for temporal_penalty in  [  "perturbed-node"]: #'global-reconstruction', 'ridge'
+    for temporal_penalty in  [ "block-wise-reconstruction", "perturbed-node"]: #'global-reconstruction', 'ridge'
         print(temporal_penalty)
         # print(prec_0)
-        for nr_obs_per_graph in [10, 50, 100]:
+        for nr_obs_per_graph in [100]:
             # if temporal_penalty == "block-wise-reconstruction" and nr_obs_per_graph in [10,50]:
             #     continue
             print(nr_obs_per_graph)
@@ -184,9 +184,6 @@ if __name__ == '__main__':
 
                     pbar.set_description(f"{i} {j}")
                     pbar.update()
-
-
-
 
 
             out_dict = {'F_error':F_error, 'alpha':alpha, 'kappa':kappa, 'one_zero_error': one_zero_error , 'l1_error':l1_error, 'prec_list':prec_list, 'theta':theta, 

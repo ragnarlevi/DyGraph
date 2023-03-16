@@ -92,14 +92,14 @@ if __name__ == '__main__':
 
 
     # "element-wise",
-    for temporal_penalty in [ 'global-reconstruction', 'ridge',"block-wise-reconstruction", "perturbed-node"]: #'global-reconstruction', 'ridge'
+    for temporal_penalty in ['element-wise', 'global-reconstruction', 'ridge',"block-wise-reconstruction", "perturbed-node"]: #'global-reconstruction', 'ridge'
         print(temporal_penalty)
 
-        alpha = np.linspace(0.01, 0.6,21) # np.concatenate((np.linspace(0.01,0.1,10),np.linspace(0.11,0.45,21)))# np.linspace(0.01,0.61, 16)
-        kappa = np.linspace(0.01, 0.8,21) # np.concatenate((np.linspace(0.01,0.1,10),np.linspace(0.11,0.45,21))) # np.linspace(0,01.61, 16)
+        alpha = np.concatenate((np.linspace(0.01,0.3, 10), [0.35, 0.4, 0.5]))
+        kappa = np.concatenate((np.linspace(0.01,0.3, 10), [0.35, 0.4, 0.5, 0.6, 0.7, 0.8 ,0.9,1]))
 
 
-        for nr_obs_per_graph in [10, 50, 100]:
+        for nr_obs_per_graph in [100]:
             print(nr_obs_per_graph)
             print("\n")
 
@@ -109,7 +109,7 @@ if __name__ == '__main__':
             rnd_state = np.random.RandomState(42)
             rnd_state2 = np.random.RandomState(1)
 
-            n = 20*nr_obs_per_graph
+            n = 9*nr_obs_per_graph
             d = prec_0.shape[0]
             # Simulate 
             Xs = np.zeros((n,d))
@@ -123,22 +123,35 @@ if __name__ == '__main__':
                     i = 0#np.random.randint(0,d)
 
                     
-                    if rnd_state.uniform() < 0.6:
+                    # if rnd_state.uniform() < 0.6:
                         
-                        if rnd_state.uniform() < 0.85:
-                            for j in range(1,d):
-                                w = prec_tmp[0,0]*(rnd_state.uniform(0.2, 0.5))
-                                prec_tmp[i,j] = w
-                                prec_tmp[j,i] = w
-                        else:
-                            for j in range(1,d):
-                                prec_tmp[i,j] = 0
-                                prec_tmp[j,i] = 0
-                    else:
-                        for j in range(1,d):
-                            w = prec_tmp[0,0]*(rnd_state.uniform(0.6, 0.8))
-                            prec_tmp[i,j] = w
-                            prec_tmp[j,i] = w
+                    #     if rnd_state.uniform() < 0.85:
+                    #         for j in range(1,d):
+                    #             w = prec_tmp[0,0]*(rnd_state.uniform(0.2, 0.5))
+                    #             prec_tmp[i,j] = w
+                    #             prec_tmp[j,i] = w
+                    #     else:
+                    #         for j in range(1,d):
+                    #             prec_tmp[i,j] = 0
+                    #             prec_tmp[j,i] = 0
+                    # else:
+                    #     for j in range(1,d):
+                    #         w = prec_tmp[0,0]*(rnd_state.uniform(0.6, 0.8))
+                    #         prec_tmp[i,j] = w
+                    #         prec_tmp[j,i] = w
+
+                    if cnt == 3:
+                        prec_tmp[4,:] =  prec_tmp[4,:]*1.5
+                        prec_tmp[:,4] =  prec_tmp[:,4]*1.5
+
+                    if cnt == 6:
+                        prec_tmp[4,:] =  prec_tmp[4,:]*0.5
+                        prec_tmp[:,4] =  prec_tmp[:,4]*0.5
+                        prec_tmp[2,4] =  0.0
+                        prec_tmp[4,2] =  0.0
+
+
+
                     
                     u,v = np.linalg.eigh(prec_tmp)
                     if np.any(u<0.0):
@@ -153,11 +166,6 @@ if __name__ == '__main__':
 
 
             prec_list = np.array(prec_list)
-
-
-
-
-
 
             pbar = tqdm.tqdm(total = len(alpha)*len(kappa))
 
@@ -202,5 +210,5 @@ if __name__ == '__main__':
             'nr_obs_per_graph':nr_obs_per_graph, 'n':n, 'X':Xs, 'obs_per_graph_model':obs_per_graph_model, 'temporal_penalty':temporal_penalty} 
             import pickle
 
-            with open(f'data/joint/joint_change_gaussian2_{temporal_penalty}_{n}_{obs_per_graph_model}.pkl', 'wb') as handle:
+            with open(f'data/joint/joint_change_gaussian3_{temporal_penalty}_{n}_{obs_per_graph_model}.pkl', 'wb') as handle:
                 pickle.dump(out_dict, handle, protocol=pickle.HIGHEST_PROTOCOL)

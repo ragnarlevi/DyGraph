@@ -90,17 +90,17 @@ S = np.linalg.inv(prec_0)
 if __name__ == '__main__':
 
     tol = 1e-10
-
-    for temporal_penalty in ["element-wise", 'global-reconstruction', 'ridge',"block-wise-reconstruction", "perturbed-node"]: #'global-reconstruction', 'ridge'
+# "element-wise", 'global-reconstruction', 'ridge',
+    for temporal_penalty in ["block-wise-reconstruction", "perturbed-node"]: #'global-reconstruction', 'ridge'
         print(temporal_penalty)
 
         if temporal_penalty in ["element-wise", 'global-reconstruction', 'ridge']:
-            alpha = np.linspace(0.01,0.5, 31)
-            kappa = np.linspace(0.01,0.9, 31)
+            alpha = np.linspace(0.01,0.3, 31)
+            kappa = np.linspace(0.01,0.3, 31)
 
         else:
-            alpha = np.linspace(0.01,0.5, 31)
-            kappa = np.linspace(0.01,0.9, 31)
+            alpha = np.concatenate((np.linspace(0.01,0.3, 25), [0.35, 0.4, 0.5]))
+            kappa = np.concatenate((np.linspace(0.01,0.3, 25), [0.35, 0.4, 0.5, 0.6, 0.7, 0.8 ,0.9,1]))
 
         for nr_obs_per_graph in [100]:
 

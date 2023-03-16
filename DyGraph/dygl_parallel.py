@@ -3,181 +3,19 @@
 # Dynamic graph estimation in parallel
 
 import inspect
-
-
 from decimal import Decimal
 import numpy as np
 import warnings
-from scipy import optimize
-import time
+import scipy
 import tqdm
-from scipy.stats import chi2, multivariate_normal, multivariate_t
-import scipy.integrate as integrate
-
 from multiprocessing.pool import Pool
+from DyGraph.dygl_utils import theta_update, soft_threshold_odd, global_reconstruction, ridge_penalty, block_wise_reconstruction, perturbed_node
+from DyGraph.RootDygl import RootDygl
 
-from collections import defaultdict
-
-
-def T(u,nu):
-    return np.array([chi2.ppf(u, df = nu[i])/nu[i] for i in range(len(nu))])
-
-def integrand(u,x,nu,i,j, theta):
+class dygl(RootDygl):
 
 
-    T_vec = T(u,nu)
-    a = np.diag(np.sqrt(np.reciprocal(T_vec)))
-    cov = np.dot(a,np.linalg.inv(theta)).dot(a)
-    A = np.sqrt(T_vec)
-    return A[i]*A[j]*multivariate_normal.pdf(x, mean =np.zeros(cov.shape[0]), cov = cov)
-
-
-
-def generalized_skew_t(x, cov, nu, gamma = None):
-
-    if gamma is None:
-        gamma = np.zeros(cov.shape[0])
-
-    integrand = lambda u: multivariate_normal.pdf(x, mean = np.dot(np.diag(np.reciprocal(T(u,nu))), gamma), cov = np.dot(np.sqrt(np.diag(np.reciprocal(T(u,nu)))), cov).dot(np.sqrt(np.diag(np.reciprocal(T(u,nu))))))
-    result = integrate.quad(integrand, 0, 1,epsabs = 1e-1, epsrel = 1e-1)
-    return result[0]
-
-def EM_matrix_update(S,theta, nu, x, m):
-
-
-
-    combination_calculated = defaultdict(lambda: None)
-
-    D = np.zeros(shape = theta.shape)
-    for i in range(D.shape[0]):
-        for j in range(i, D.shape[0]):
-            combintaion = ''.join(sorted(str(m[i])+str(m[j])))
-            if combination_calculated[combintaion] is None:
-                print("what")
-                tmp = generalized_skew_t(x, S, nu, gamma = None)
-                D[i,j] =  integrate.quad(integrand, 0, 1 ,args = (x, nu,i,j,theta),epsabs = 1e-1, epsrel = 1e-1)[0]/tmp
-                combination_calculated[combintaion] = D[i,j]
-            else:
-                D[i,j] = combination_calculated[combintaion]
-
-    return np.triu(D,0) + np.triu(D,1).T
-
-
-
-
-
-def Gaussian_update(S, A,  eta):
-
-    """
-    Update according to gaussian likelihood
-    """
-    AT = A.T
-    M =  0.5*(A+AT)/eta - S
-    D, Q = np.linalg.eig(M)
-    diag_m = np.diag(D+np.sqrt(D**2 + 4.0/eta))
-    return np.real(0.5*eta*np.dot(Q, diag_m).dot(Q.T))
-
-
-def inner_em(X,A, theta_init, nu, rho, eta, groups = None, lik_type = "t", nr_itr = 5, tol = 1e-5):
-    """
-    EM of theta
-    """
-    if lik_type == "t":
-
-        d = X.shape[1]
-        iteration = 0
-        theta_pre = theta_init
-        while iteration < nr_itr:
-            # E-step
-            x = X
-            M = np.einsum('nj,jk,nk->n', x, theta_pre, x)  # Mahalanobis distance
-            tau = (nu + d)/(nu  + M)
-            S = np.einsum('nj,n,nk->jk', x, tau, x)/float(x.shape[0])
-            # M-step
-            theta_new= Gaussian_update(S, A, eta)
-
-
-            fro = np.linalg.norm(theta_new - theta_pre)
-            if fro < tol:
-                theta_pre = theta_new.copy()
-                break
-            else:
-                theta_pre = theta_new.copy()
-            iteration+=1
-
-        if iteration == nr_itr:
-            warnings.warn("EM algorithm did not converge. Try to increase number of iterations")
-        # print(f"{iteration} {fro}")
-
-    elif lik_type == "group-t":
-        
-        d = X.shape[1]
-        iteration = 0
-        theta_pre = theta_init
-        S_pre = np.linalg.inv(theta_pre)
-        while iteration < nr_itr:
-            # E-step
-            x = X
-            S = np.zeros(shape = (d,d))
-            #print("starting E-step")
-            for i in range(x.shape[0]):
-                # print(i)
-                S += np.multiply(np.outer(x[i],x[i]), EM_matrix_update(S_pre, theta_pre,nu,x[i],groups))/float(x.shape[0])
-            # M-step
-            theta_new= Gaussian_update(S, A, eta)
-            #print("E-step finished")
-
-            fro = np.linalg.norm(theta_new - theta_pre)
-            if fro < tol:
-                theta_pre = theta_new.copy()
-                break
-            else:
-                theta_pre = theta_new.copy()
-                S_pre = np.linalg.inv(theta_pre)
-            iteration+=1
-
-        # if iteration == nr_itr:
-        #     warnings.warn("EM algorithm did not converge. Try to increase number of iterations")
-    else:
-        raise ValueError(f"likelihood {lik_type} not known")
-
-
-    return theta_new
-
-
-def theta_update(i, A, S , n_t, rho, nr_graphs, groups = None, lik_type = "gaussian", X = None, nr_em_itr = 5, theta_init = None, nu = None, em_tol = 1e-3):
-    """
-    Theta update
-
-    Parameters
-    ----------------
-    i: int,
-        index of being updates
-    lik_type: str,
-        type of likelihood: gaussian, t
-    """
-    if i == nr_graphs-1 or i == 0:
-        eta = n_t/rho/2.0
-    else:
-        eta = n_t/rho/3.0
-
-    if lik_type == "gaussian":
-        theta = Gaussian_update(S, A, eta)
-    elif lik_type == "t":
-        theta = inner_em(X, A, theta_init, nu, rho, eta, nr_itr= nr_em_itr, tol = em_tol)
-    elif lik_type == "group-t":
-        # print("group-t update")
-        theta = inner_em(X, A, theta_init, nu, rho, eta, groups, lik_type = lik_type, nr_itr= nr_em_itr, tol = em_tol)
-    else:
-        raise ValueError(f"likelihood {lik_type} not known")
-
-    return theta, i
-
-
-class dygl_parallel():
-
-
-    def __init__(self, obs_per_graph, max_iter, lamda, kappa, tol = 1e-6) -> None:
+    def __init__(self, obs_per_graph, max_iter, lamda, kappa, kappa_gamma = 0, tol = 1e-6, l = None, X_type = 'disjoint') -> None:
 
         """
         Parameters
@@ -190,51 +28,26 @@ class dygl_parallel():
             Maximum number of iterations
         
         lambda: float,
-            regularization parameters used for z0 l1 off diagonal 
+            regularization strength used for z0 l1 off diagonal 
 
         kappa: float,
-            regularization parameters used for z1 and z2 temporal penalties
+            regularization strength used for z1 and z2 temporal penalties
+
+        kappa: float,
+            regularization strength used for z3 and z4 gamma temporal penalties
 
         tol: float,
             Convergence tolerance.
+        l: int
+            If X_type = rolling-window. l is the rolling window jumpt size
+        X_type: str
+            disjoint or rolling-window.
         
         
         """
-        assert obs_per_graph >= 0, "block size has to be bigger than on1"
-
-        args, _, _, values = inspect.getargvalues(inspect.currentframe())
-        values.pop("self")
-        for arg, val in values.items():
-            setattr(self, arg, val)
-
-        self.obs_per_graph = int(obs_per_graph)
-        self.rho = float(obs_per_graph+1)
+        RootDygl.__init__(self, obs_per_graph, max_iter, lamda, kappa, kappa_gamma , tol, l, X_type ) 
 
 
-    def calc_S(self, X, method):
-        """
-        Calculation of the empirical covariance matrix
-
-        Parameters
-        ---------------------
-        method: str,
-            Method used to estimate the covariance
-        X: numpy array,
-            data matrix
-
-        """
-        X = np.array(X)
-        self.S = []
-
-        if method == "empirical":
-            for i in range(0, X.shape[0], self.obs_per_graph):
-                x_tmp = X[i:(i+self.obs_per_graph)]
-                if x_tmp.shape[0] == 1:
-                    self.S.append(np.outer(x_tmp,x_tmp))
-                else:
-                    self.S.append( np.cov(x_tmp.T))
-        else:
-            raise ValueError(f"No method for S called {method}")
 
     def get_A(self, i):
         if i == 0 or i == self.nr_graphs-1:
@@ -242,10 +55,13 @@ class dygl_parallel():
         else:
             A = (self.z0[i] + self.z1[i] + self.z2[i] - self.u0[i] - self.u1[i] - self.u2[i])/3.0
         return A
-
-    def get_A_z(self, i):
-       return self.theta[i]-self.theta[i-1]+self.u2[i]-self.u1[i-1]
-
+    
+    def get_A_gamma(self,i):
+        if i == 0 or i == self.nr_graphs-1:
+            A = self.z3[i] + self.z4[i] - self.u3[i] - self.u4[i]
+        else:
+            A = (self.z3[i] + self.z4[i] - self.u3[i] - self.u4[i])/2.0
+        return  A
 
 
 
@@ -270,452 +86,177 @@ class dygl_parallel():
         self.u0 = self.u0 + self.theta - self.z0
         self.u1[:(self.nr_graphs-1)] = self.u1[:(self.nr_graphs-1)] + self.theta[:(self.nr_graphs-1)]-self.z1[:(self.nr_graphs-1)]
         self.u2[1:] = self.u2[1:] + self.theta[1:] - self.z2[1:]
+        
+        self.u3[:(self.nr_graphs-1)] = self.u3[:(self.nr_graphs-1)] + self.gamma[:(self.nr_graphs-1)]-self.z3[:(self.nr_graphs-1)]
+        self.u4[1:] = self.u4[1:] + self.gamma[1:] - self.z4[1:]
 
 
 
-    def fit(self, X,temporal_penalty, lik_type= "gaussian",  nr_workers = 1, verbose = True, time_index = None, **kwargs):
+
+    def fit(self, X,temporal_penalty,theta_init = None, lik_type= "gaussian",  nr_workers = 1, verbose = True, True_prec = None, **kwargs):
+
+        self.n = X.shape[0]
+        self.get_nr_graphs()
+        self.calc_S(X, kwargs.get("S_method", "empirical"))
+        self.nu = kwargs.get("nu", None)
+        self.groups = kwargs.get("groups", None)
+
+
+        if  np.isin(lik_type, ('skew-group-t', 'group-t')) and  kwargs.get("groups", None) is None:
+            raise ValueError("groups has to be given for skew-group-t and group-t")
+
+
+
+        if (kwargs.get("nu", None) is None):
+            self.nu = self.calc_nu(X,lik_type, kwargs.get("groups", None))
 
         if verbose:
             pbar = tqdm.tqdm(total = self.max_iter)
 
         # find obs_per_graph
         self.obs_per_graph_used = []
-        for i in range(0, X.shape[0], self.obs_per_graph):
-            x_tmp = X[i:(i+self.obs_per_graph)]
+        for i in range(0, self.nr_graphs):
+            x_tmp = self.return_X(i, X)
             self.obs_per_graph_used.append(x_tmp.shape[0])
 
-        
-        self.calc_S(X, kwargs.get("S_method", "empirical"))
+    
 
-
-
-        self.nr_graphs = len(range(0, X.shape[0], self.obs_per_graph))
+        self.F_error = []
         self.iteration = 0
         assert self.nr_graphs >1, "X.shape[0]/obs_per_graph has to be above 1"
        
+        d = X.shape[1]
 
-        self.u0 = np.zeros((self.nr_graphs, X.shape[1], X.shape[1]))
-        self.u1 = np.zeros((self.nr_graphs, X.shape[1], X.shape[1]))
-        self.u2 = np.zeros((self.nr_graphs, X.shape[1], X.shape[1]))
+        self.u0 = np.zeros((self.nr_graphs, d, d))
+        self.u1 = np.zeros((self.nr_graphs, d,d))
+        self.u2 = np.zeros((self.nr_graphs, d, d))
+        self.u3 = np.zeros((self.nr_graphs, d))
+        self.u4 = np.zeros((self.nr_graphs, d))
 
-        self.z0 = np.ones((self.nr_graphs, X.shape[1], X.shape[1]))
-        self.z1 =   np.zeros((self.nr_graphs, X.shape[1], X.shape[1]))
-        self.z2 = np.zeros((self.nr_graphs, X.shape[1], X.shape[1]))
+        self.z3 = np.zeros((self.nr_graphs, d))
+        self.z4 = np.zeros((self.nr_graphs, d))
 
-        self.theta = np.array([np.identity(X.shape[1]) for _ in range(self.nr_graphs) ])
+        if theta_init is None:
+            self.theta = np.array([np.identity(X.shape[1]) for _ in range(self.nr_graphs) ])
+            self.z0 = np.ones((self.nr_graphs, d, d))
+            self.z1 = np.zeros((self.nr_graphs, d,d))
+            self.z2 = np.zeros((self.nr_graphs, d, d))
+        else:
+            self.theta = theta_init.copy()
+            self.z0 = theta_init.copy()
+            self.z1 = theta_init.copy()
+            self.z1[-1] = np.zeros((d,d))
+            self.z2 = theta_init.copy()
+            self.z2[0] = np.zeros((d,d))
+
+
+
+        self.gamma = np.array([np.zeros(X.shape[1]) for _ in range(self.nr_graphs) ])
         thetas_pre = self.theta.copy()
 
         pool = Pool(nr_workers)
 
 
-        if time_index is not None:
-            self.graph_time = [time_index[k] for k in range(0, self.nr_graphs*self.obs_per_graph, self.obs_per_graph)]
-            assert len(self.graph_time) == self.nr_graphs
+        if not hasattr(self.kappa, "__len__"):
+            self.kappa = np.array([self.kappa for _ in range(self.nr_graphs)])
+        if not hasattr(self.kappa_gamma, "__len__"):
+            self.kappa_gamma = np.array([self.kappa_gamma for _ in range(self.nr_graphs)])
 
-        if X.shape[0] % self.obs_per_graph:
-            warnings.warn("Observations per graph estimation not divisiable by total number of observations. Last observations not used.")
+
         while self.iteration < self.max_iter:
 
             if self.nr_graphs< nr_workers:
                 nr_workers = self.nr_graphs
             
             # update theta in parallel
-            # print(f"iteration {self.iteration}")
             if nr_workers >1:
-                # theta_update(i, A, S , n_t, rho,lik_type = "gaussian", X = None, nr_em_itr = 5, theta_init = None, nu = None, em_tol = 1e-3)
                 results = pool.starmap(theta_update,((i,
                                                         self.get_A(i), 
                                                         self.S[i], 
                                                         self.obs_per_graph_used[i],
-                                                        self.rho, 
+                                                        self.rho,
+                                                        self.rho_gamma,
                                                         self.nr_graphs,
-                                                        kwargs.get("groups", None),
+                                                        self.get_A_gamma(i),
+                                                        self.groups,
                                                         lik_type,
-                                                        X[self.obs_per_graph*i:(i+1)*self.obs_per_graph],
-                                                        kwargs.get("nr_em_itr", 5),
-                                                        self.theta[i],
-                                                        kwargs.get("nu", 4),
-                                                        kwargs.get("em_tol", 1e-4)) for i in range(self.nr_graphs)))
+                                                        self.return_X(i, X),
+                                                        kwargs.get("nr_em_itr", 1),
+                                                        self.theta[i].copy(),
+                                                        self.gamma[i],
+                                                        self.nu[i],
+                                                        kwargs.get("em_tol", 1e-4),
+                                                        kwargs.get("nr_quad", 5),
+                                                        kwargs.get("pool", None)  ) for i in range(self.nr_graphs)))
                 for result in results:
-                    self.theta[result[1]] = result[0]
+                    self.theta[result[2]] = result[0]
+                    self.gamma[result[2]] = result[1]
+
             else:
                 for i in range(self.nr_graphs):
-                    self.theta[i],_ = theta_update(i,
+                    self.theta[i], self.gamma[i], _ = theta_update(i,
                                                         self.get_A(i), 
                                                         self.S[i], 
                                                         self.obs_per_graph_used[i],
                                                         self.rho, 
+                                                        self.rho_gamma,
                                                         self.nr_graphs,
-                                                        kwargs.get("groups", None),
+                                                        self.get_A_gamma(i),
+                                                        self.groups,
                                                         lik_type,
-                                                        X[self.obs_per_graph*i:(i+1)*self.obs_per_graph],
+                                                        self.return_X(i, X),
                                                         kwargs.get("nr_em_itr", 5),
                                                         self.theta[i],
-                                                        kwargs.get("nu", 4),
-                                                        kwargs.get("em_tol", 1e-4))
+                                                        self.gamma[i],
+                                                        self.nu[i],
+                                                        kwargs.get("em_tol", 1e-4),
+                                                        kwargs.get("nr_quad", 5),
+                                                        kwargs.get("pool", None)  )
 
 
             # update dual in parallel
             # update z0
             for i in range(self.nr_graphs):
-                self.z0[i] = self.soft_threshold_odd(self.theta[i]+self.u0[i], self.lamda/self.rho)
+                self.z0[i] = soft_threshold_odd(self.theta[i]+self.u0[i], self.lamda/self.rho)
                 np.fill_diagonal(self.z0[i], np.diag(self.theta[i]+self.u0[i]))
 
-            # update z1, z2
+            # update z1, z2, z3, z4
             for i in range(1,self.nr_graphs):
                 A = self.theta[i]-self.theta[i-1]+self.u2[i]-self.u1[i-1]
                 if temporal_penalty == "element-wise":
-                    E = self.soft_threshold_odd(A, 2*self.kappa/self.rho)
+                    E = soft_threshold_odd(A, 2*self.kappa[i-1]/self.rho)
                     self.z12_update(E,i)
                 elif temporal_penalty == "global-reconstruction":
-                    E = self.global_reconstruction(A, 2*self.kappa/self.rho)
+                    E = global_reconstruction(A, 2*self.kappa[i-1]/self.rho)
                     self.z12_update(E,i)
                 elif temporal_penalty == "ridge":
-                    E = self.ridge_penalty(A,2*self.kappa/self.rho)
+                    E = ridge_penalty(A,2*self.kappa[i-1]/self.rho)
                     self.z12_update(E,i)
                 elif temporal_penalty == "block-wise-reconstruction":
-                    E = self.block_wise_reconstruction(A,2*self.kappa/self.rho)
+                    E = block_wise_reconstruction(A,2*self.kappa[i-1]/self.rho)
                     self.z12_update(E,i)
                 elif temporal_penalty == "perturbed-node":
-                    Y1,Y2 = self.perturbed_node(self.theta[i], self.theta[i-1], self.u2[i], self.u1[i-1], tol = kwargs.get('p_node_tol', 1e-5), max_iter =  kwargs.get('p_node_max_iter', 1000))
+                    Y1,Y2 = perturbed_node(self.theta[i], self.theta[i-1], self.u2[i], self.u1[i-1], self.kappa[i-1], self.rho, tol = kwargs.get('p_node_tol', 1e-5), max_iter =  kwargs.get('p_node_max_iter', 5000))
                     self.z1[i-1] = Y1
                     self.z2[i] = Y2
                 else:
                     raise ValueError(f"{temporal_penalty} not a defined penalty function")
+                
+                if lik_type == 'skew-group-t':
+                    A_gamma = self.gamma[i]-self.gamma[i-1]+self.u4[i]-self.u3[i-1]
+                    E = soft_threshold_odd(A_gamma, 2*self.kappa_gamma[i-1]/self.rho_gamma)
+                    summ = 0.5*(self.gamma[i]+self.gamma[i-1]+self.u3[i-1]+self.u4[i])
+                    self.z3[i-1] = summ - 0.5*E
+                    self.z4[i] = summ + 0.5*E
+
+            
 
             # update u
             self.u_update()
 
-            # check convergence
-            self.fro_norm = 0.0
-            for i in range(self.nr_graphs):
-                dif = self.theta[i] - thetas_pre[i]
-                self.fro_norm += np.linalg.norm(dif)
-            if self.fro_norm < self.tol:
-                break
-
-            if verbose:
-                    pbar.set_description(f"Error {Decimal(self.fro_norm):.2E}")
-                    pbar.update()
-
-            thetas_pre = self.theta.copy()
-            self.iteration+=1
-
-        if self.iteration == self.max_iter:
-            warnings.warn("Max iterations reached.")
-
-        if verbose:
-            pbar.close()
-
-
-
-    def soft_threshold_odd(self,  A, lamda):
-
-        """
-        diagonal lasso penalty
-
-        Parameters
-        ------------------
-        A: np.array,
-        
-        lamda: float,
-            regularization
-        """
-        opt_m = (A-lamda)*(A>=lamda) + (A+lamda)*(A<=-lamda)
-        
-
-        return opt_m
-
-
-    def global_reconstruction(self, A, eta):
-        """
-        l2 group fused lasso
-
-        Parameters
-        ------------------
-        A: np.array,
-        
-        lamda: float,
-            regularization
-        """
-        
-        # LOOP OVER COLUMNS
-        E = np.zeros(shape=A.shape)
-        for i in range(A.shape[1]):
-            norm_val = np.sqrt(np.inner(A[:,i], A[:,i]))
-            if norm_val <= eta:
-                continue
-
-            E[:,i] = (1.0 - eta/norm_val)*A[:,i]*(norm_val>eta)
-
-        return E
-
-
-
-    def ridge_penalty(self, A, eta):
-        """
-        Ridge/Laplacian penalty
-
-        Parameters
-        ------------------
-        A: np.array,
-        
-        lamda: float,
-            regularization
-        """
-
-        return A/(1.0+2.0*eta)
-
-
-    def block_wise_reconstruction(self,A,  eta ):
-        """
-        Block-wise reconstruction: l_\infty norm
-
-        Parameters
-        ------------------
-        A: np.array,
-        
-        lamda: float,
-            regularization
-        """
-        def f(x, v):
-            # Solve for hidden threshold
-
-            return  np.sum([np.max([np.abs(v[i]) - x, 0]) for i in range(len(v))]) -1
-
-        # LOOP OVER COLUMNS
-        if eta > 0.0:
-            E = np.zeros(shape=A.shape)
-            for i in range(A.shape[1]):
-                if np.sum(np.abs(A[:,i])) <= eta:
-                    continue
-
-                l_opt = optimize.bisect(f = f, a = 0, b = np.sum(np.abs(A[:,i]/eta)), args = (A[:,i]/eta,), xtol=1e-4)
-
-                E[:,i] = A[:,i] - eta*self.soft_threshold_odd(A[:,i]/eta, l_opt)
-        else:
-            E = A.copy()
-
-        return E
-
-
-
-    def perturbed_node(self, theta_i, theta_i_1, U_i, U_i_1, tol = 1e-5, max_iter = 1000):
-        """
-        Block-wise reconstruction: l_\infty norm
-
-        Parameters
-        ------------------
-        A: np.array,
-        
-        lamda: float,
-            regularization
-        """
-
-        p = theta_i.shape
-        Y1 = np.ones(shape = p )
-        Y2 = np.ones(shape = p)
-        V = np.ones(shape = p)
-        W = np.ones(shape = p)
-        U_tilde_1 = np.zeros(shape = p)
-        U_tilde_2 = np.zeros(shape = p)
-
-        count_it = 0
-        while count_it < max_iter:
-
-            A = (Y1-Y2-W-U_tilde_1 +W.T-U_tilde_2.T)/2
-            V = self.global_reconstruction(A,self.kappa/(2.0*self.rho))
-
-            I = np.identity(p[0])
-            C = np.hstack((I,-I,I))
-            D = V+U_tilde_1
-
-            tmp_vec = np.vstack((V.T+U_tilde_2.T,  theta_i_1 + U_i_1, theta_i + U_i))
-
-            out = np.dot(np.linalg.inv(np.dot(C.T,C)+2*np.identity(C.shape[1])), 2*tmp_vec - np.dot(C.T,D))
-
-            W = out[:p[0]].copy()
-            Y_1_pre =Y1.copy() 
-            Y1 = out[p[0]:(2*p[0])].copy()
-            Y2 = out[(2*p[0]):].copy()
-
-            U_tilde_1 = U_tilde_1 + V + W - Y1 + Y2
-            U_tilde_2 = U_tilde_2 + V - W.T
-
-            dif = Y1 -Y_1_pre
-            if max_iter >0:
-                fro_norm = np.linalg.norm(dif)
-                if  fro_norm < tol:
-                    break
-
-            count_it += 1
-
-
-        if count_it == max_iter:
-            print(f"ADMM for perturbed node reached maximum iterations. Last difference was {fro_norm}")
-
-        return Y1, Y2
-
-
-
-
-
-
-class dygl_parallel_static():
-
-
-    def __init__(self, obs_per_graph, max_iter, lamda, kappa, tol = 1e-6) -> None:
-
-        """
-        Parameters
-        ------------------
-        obs_per_graph: int,
-            Observations used to construct each each matrix, can be 1 or larger
-
-
-        max_iter: int,
-            Maximum number of iterations
-        
-        lambda: float,
-            regularization parameters used for z0 l1 off diagonal 
-
-        kappa: float,
-            regularization parameters used for z1 and z2 temporal penalties
-
-        tol: float,
-            Convergence tolerance.
-        
-        
-        """
-        assert obs_per_graph >= 0, "block size has to be bigger than on1"
-
-        args, _, _, values = inspect.getargvalues(inspect.currentframe())
-        values.pop("self")
-        for arg, val in values.items():
-            setattr(self, arg, val)
-
-        self.obs_per_graph = int(obs_per_graph)
-        self.rho = float(obs_per_graph+1)
-
-
-    def calc_S(self, X, method):
-        """
-        Calculation of the empirical covariance matrix
-
-        Parameters
-        ---------------------
-        method: str,
-            Method used to estimate the covariance
-        X: numpy array,
-            data matrix
-
-        """
-        X = np.array(X)
-        self.S = []
-
-        if method == "empirical":
-            for i in range(0, X.shape[0], self.obs_per_graph):
-                x_tmp = X[i:i+self.obs_per_graph]
-                self.S.append( np.dot(x_tmp.T, x_tmp))
-        else:
-            raise ValueError(f"No method for S called {method}")
-
-    def get_A(self, i):
-        A = self.z0[i]  - self.u0[i] 
-        return A
-
-    def get_A_z(self, i):
-       return self.theta[i]-self.theta[i-1]+self.u2[i]-self.u1[i-1]
-
-    def u_update(self):
-        self.u0 = self.u0 + self.theta - self.z0
-
-
-
-    def fit(self, X,temporal_penalty, lik_type= "gaussian",  nr_workers = 1, verbose = True, time_index = None, **kwargs):
-
-
-        if verbose:
-            pbar = tqdm.tqdm(total = self.max_iter)
-
-        # find obs_per_graph
-        self.obs_per_graph_used = []
-        for i in range(0, X.shape[0], self.obs_per_graph):
-            x_tmp = X[i:i+self.obs_per_graph]
-            self.obs_per_graph_used.append(x_tmp.shape[0])
-
-        
-        self.calc_S(X, kwargs.get("S_method", "empirical"))
-
-
-        d = X.shape[1]
-
-
-        self.nr_graphs = len(range(0, X.shape[0], self.obs_per_graph))
-        self.iteration = 0
-        assert self.nr_graphs >1, "X.shape[0]/obs_per_graph has to be above 1"
-       
-
-        self.u0 = np.zeros((self.nr_graphs, X.shape[1], X.shape[1]))
-        self.z0 = np.ones((self.nr_graphs, X.shape[1], X.shape[1]))
-
-        self.theta = np.array([ np.linalg.pinv(self.S[i]) + np.random.multivariate_normal(mean = np.zeros(d), cov = np.identity(d)) for i in range(self.nr_graphs)])
-        thetas_pre = self.theta.copy()
-
-        pool = Pool(nr_workers)
-
-        if time_index is not None:
-            self.graph_time = [time_index[k] for k in range(0, self.nr_graphs*self.obs_per_graph, self.obs_per_graph)]
-            assert len(self.graph_time) == self.nr_graphs
-
-        if X.shape[0] % self.obs_per_graph:
-            warnings.warn("Observations per graph estimation not divisiable by total number of observations. Last observations not used.")
-        while self.iteration < self.max_iter:
-
-            if self.nr_graphs< nr_workers:
-                nr_workers = self.nr_graphs
-            
-            # update theta in parallel
-            
-            if nr_workers >1:
-                # theta_update(i, A, S , n_t, rho,lik_type = "gaussian", X = None, nr_em_itr = 5, theta_init = None, nu = None, em_tol = 1e-3)
-                results = pool.starmap(theta_update, ((i,
-                                                    self.get_A(i), 
-                                                    self.S[i], 
-                                                    self.obs_per_graph_used[i],
-                                                    self.rho, 
-                                                    self.nr_graphs,
-                                                    lik_type,
-                                                    X[self.obs_per_graph*i:(i+1)*self.obs_per_graph],
-                                                    kwargs.get("nr_em_itr", 5),
-                                                    self.theta[i],
-                                                    kwargs.get("nu", 4),
-                                                    kwargs.get("em_tol", 1e-4)) for i in range(self.nr_graphs)))
-                for result in results:
-                    self.theta[result[1]] = result[0]
-            else:
-                for i in range(self.nr_graphs):
-                    self.theta[i],_ = theta_update(i,self.get_A(i), self.S[i], 
-                                                    self.obs_per_graph_used[i],
-                                                    self.rho, 
-                                                    self.nr_graphs,
-                                                    lik_type,
-                                                    X[self.obs_per_graph*i:(i+1)*self.obs_per_graph],
-                                                    kwargs.get("nr_em_itr", 5),
-                                                    self.theta[i],
-                                                    kwargs.get("nu", 4),
-                                                    kwargs.get("em_tol", 1e-4))
-
-
-            # update dual in parallel
-            # update z0
-            for i in range(self.nr_graphs):
-                self.z0[i] = self.soft_threshold_odd(self.theta[i]+self.u0[i], self.lamda/self.rho)
-                np.fill_diagonal(self.z0[i], np.diag(self.theta[i]+self.u0[i]))
-
-
-            # update u
-            self.u_update()
+            if True_prec is not None:
+                F_score = np.mean([scipy.linalg.norm(True_prec[k]-self.theta[k], ord = 'fro')/scipy.linalg.norm(True_prec[k], ord = 'fro') for k in range(len(self.theta))])
+                self.F_error.append(F_score)
 
             # check convergence
             self.fro_norm = 0.0
@@ -725,9 +266,12 @@ class dygl_parallel_static():
             if self.fro_norm < self.tol:
                 break
 
-            if verbose:
+            if verbose:   
+                if True_prec is not None:              
+                    pbar.set_description(f"Error {Decimal(self.fro_norm):.2E}, F {Decimal(self.F_error[-1]):.3E}")
+                else:
                     pbar.set_description(f"Error {Decimal(self.fro_norm):.2E}")
-                    pbar.update()
+                pbar.update()
 
             thetas_pre = self.theta.copy()
             self.iteration+=1
@@ -740,148 +284,6 @@ class dygl_parallel_static():
 
 
 
-    def soft_threshold_odd(self,  A, lamda):
-
-        """
-        diagonal lasso penalty
-
-        Parameters
-        ------------------
-        A: np.array,
-        
-        lamda: float,
-            regularization
-        """
-        opt_m = (A-lamda)*(A>=lamda) + (A+lamda)*(A<=-lamda)
-        
-
-        return opt_m
-
-
-    def global_reconstruction(self, A, eta):
-        """
-        l2 group fused lasso
-
-        Parameters
-        ------------------
-        A: np.array,
-        
-        lamda: float,
-            regularization
-        """
-        
-        # LOOP OVER COLUMNS
-        E = np.zeros(shape=A.shape)
-        for i in range(A.shape[1]):
-            norm_val = np.sqrt(np.inner(A[:,i], A[:,i]))
-            if norm_val <= eta:
-                continue
-
-            E[:,i] = (1.0 - eta/norm_val)*A[:,i]*(norm_val>eta)
-
-        return E
-
-
-
-    def ridge_penalty(self, A, eta):
-        """
-        Ridge/Laplacian penalty
-
-        Parameters
-        ------------------
-        A: np.array,
-        
-        lamda: float,
-            regularization
-        """
-
-        return A/(1.0+2.0*eta)
-
-
-    def block_wise_reconstruction(self,A,  eta ):
-        """
-        Block-wise reconstruction: l_\infty norm
-
-        Parameters
-        ------------------
-        A: np.array,
-        
-        lamda: float,
-            regularization
-        """
-        def f(x, v):
-            # Solve for hidden threshold
-
-            return  np.sum([np.max([np.abs(v[i]) - x, 0]) for i in range(len(v))]) -1
-
-        # LOOP OVER COLUMNS
-        E = np.zeros(shape=A.shape)
-        for i in range(A.shape[1]):
-            if np.sum(np.abs(A[:,i])) <= eta:
-                continue
-
-            l_opt = optimize.bisect(f = f, a = 0, b = np.sum(np.abs(E[:,i]/eta)), args = (E[:,i]/eta,)) # xtol=1e-4, rtol=1e-4
-
-            E[:,i] = A[:,i] - eta*self.soft_threshold_odd(A[:,i]/eta, l_opt)
-
-        return E
-
-
-    def perturbed_node(self, theta_i, theta_i_1, U_i, U_i_1, tol = 1e-10, max_iter = 1000):
-        """
-        Block-wise reconstruction: l_\infty norm
-
-        Parameters
-        ------------------
-        A: np.array,
-        
-        lamda: float,
-            regularization
-        """
-
-        p = theta_i.shape
-        Y1 = np.ones(shape = p )
-        Y2 = np.ones(shape = p)
-        V = np.ones(shape = p)
-        W = np.ones(shape = p)
-        U_tilde_1 = np.zeros(shape = p)
-        U_tilde_2 = np.zeros(shape = p)
-
-        count_it = 0
-        while count_it < max_iter:
-
-            A = (Y1-Y2-W-U_tilde_1 +W.T-U_tilde_2.T)/2
-            V = self.global_reconstruction(A,self.kappa/(2.0*self.rho))
-
-            I = np.identity(p[0])
-            C = np.hstack((I,-I,I))
-            D = V+U_tilde_1
-
-            tmp_vec = np.vstack((V.T+U_tilde_2.T,  theta_i_1 + U_i_1, theta_i + U_i))
-
-            out = np.dot(np.linalg.inv(np.dot(C.T,C)+2*np.identity(C.shape[1])), 2*tmp_vec - np.dot(C.T,D))
-
-            W = out[:p[0]].copy()
-            Y_1_pre =Y1.copy() 
-            Y1 = out[p[0]:(2*p[0])].copy()
-            Y2 = out[(2*p[0]):].copy()
-
-            U_tilde_1 = U_tilde_1 + V + W - Y1 + Y2
-            U_tilde_2 = U_tilde_2 + V - W.T
-
-            dif = Y1 -Y_1_pre
-            if max_iter >0:
-                fro_norm = np.linalg.norm(dif)
-                if  fro_norm < tol:
-                    break
-
-            count_it += 1
-
-
-        if count_it == max_iter:
-            print(f"ADMM for perturbed node reached maximum iterations. Last difference was {fro_norm}")
-
-        return Y1, Y2
 
 
 

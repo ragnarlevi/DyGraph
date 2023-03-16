@@ -11,7 +11,7 @@ import time
 
 
 
-class dygl():
+class dygl_old():
 
 
     def __init__(self, obs_per_graph, max_iter, lamda, kappa, tol = 1e-6) -> None:
@@ -233,7 +233,7 @@ class dygl():
             self.graph_time = [time_index[k] for k in range(0, self.nr_graphs*self.obs_per_graph, self.obs_per_graph)]
             assert len(self.graph_time) == self.nr_graphs
 
-
+        print(X.shape)
         if X.shape[0] % self.obs_per_graph:
             warnings.warn("Observations per graph estimation not divisiable by total number of observations. Last observations not used.")
         while self.iteration < self.max_iter:
