@@ -15,6 +15,7 @@ import pickle
 from collections import defaultdict
 import scipy.integrate as integrate
 import yfinance as yf
+from multiprocessing.pool import Pool
 
 
 def log_lik(mean,cov, X, liktype, nu = None):
@@ -162,9 +163,9 @@ def run(kappa_const, lik_type ,obs_per_graph, asset_type, temp):
         name = f'{lik_type}_nr_quad_{nr_quad}_{asset_type}'
 
     if np.isin(lik_type, ['group-t', 'skew-group-t']):
-        max_iter = 80
+        max_iter = 30
     else:
-        max_iter = 800
+        max_iter = 1500
 
 
     name = f'{name}_k_{kappa_const}_disjoint_{obs_per_graph}'
@@ -174,9 +175,9 @@ def run(kappa_const, lik_type ,obs_per_graph, asset_type, temp):
     # health, real, fin. TECH
     
 
-    alphas = [0.001, 0.01, 0.025, 0.05, 0.075, 0.1, 0.125, 0.15, 0.2, 0.25, 0.3, 0.35]
+    alphas = [0.05]#[0.001, 0.01, 0.025, 0.05, 0.075, 0.1, 0.125, 0.15, 0.2, 0.25, 0.3, 0.35]
     time_index = range(500, 1600, l)
-    tol = 1e-6
+    tol = 1e-8
   
     pbar = tqdm.tqdm(total = len(time_index), position=1)
 
@@ -215,11 +216,12 @@ def run(kappa_const, lik_type ,obs_per_graph, asset_type, temp):
     sigmas_s = {i: [] for i in range(len(alphas))}
     sigmas_m = {i: [] for i in range(len(alphas))}
     time_forecast = {i: [] for i in range(len(alphas))}
+    likelihoods = {i: [] for i in range(len(alphas))}
 
 
 
     if np.isin(lik_type, ['group-t', 'skew-group-t']):
-        with open(f'data/case_study_etf/t_kappa_0.9_nr_quad_10_etf.pkl', 'rb') as handle:
+        with open(f'data/case_study_etf/t_nr_quad_10_ind_30_k_0.3_disjoint_{n}.pkl', 'rb') as handle:
             t_port = pickle.load(handle)
         theta_init = t_port['thetas'][0][0]
     else:
@@ -246,10 +248,19 @@ def run(kappa_const, lik_type ,obs_per_graph, asset_type, temp):
 
             pbar.set_description(f"i {i}, alpha {alpha}")
             mu = np.mean(log_returns_scaled.iloc[lwr:i],axis = 0)
-            dg_opt = dg.dygl(obs_per_graph = obs_per_graph, max_iter = max_iter, lamda = obs_per_graph*alpha, kappa = obs_per_graph*kappa, kappa_gamma=obs_per_graph*kappa_gamma, 
+            
+            if np.isin(lik_type, ['group-t', 'skew-group-t']):
+                dg_opt = dg.dygl(obs_per_graph = obs_per_graph, max_iter = max_iter, lamda = obs_per_graph*alpha, kappa = obs_per_graph*kappa, kappa_gamma=obs_per_graph*kappa_gamma, 
                             tol = tol, X_type = 'disjoint', l = l)
-            dg_opt.fit(np.array(log_returns_scaled[lwr:i]-mu), nr_workers=12, temporal_penalty=temp, lik_type=lik_type, nu = None,verbose=True, 
+                dg_opt.fit(np.array(log_returns_scaled[lwr:i]-mu), nr_workers=1, temporal_penalty=temp, lik_type=lik_type, nu = None,verbose=True, 
+                       theta_init= theta_init, groups = groups,nr_quad = nr_quad, pool = Pool(12))
+
+            else:
+                dg_opt = dg.dygl(obs_per_graph = obs_per_graph, max_iter = max_iter, lamda = obs_per_graph*alpha, kappa = obs_per_graph*kappa, kappa_gamma=obs_per_graph*kappa_gamma, 
+                            tol = tol, X_type = 'disjoint', l = l)
+                dg_opt.fit(np.array(log_returns_scaled[lwr:i]-mu), nr_workers=12, temporal_penalty=temp, lik_type=lik_type, nu = None,verbose=True, 
                        theta_init= theta_init, groups = groups,nr_quad = nr_quad)
+
 
             
             # get precision/covariance
@@ -271,7 +282,7 @@ def run(kappa_const, lik_type ,obs_per_graph, asset_type, temp):
 
             
             # portfolio weights sharpe
-            w_s, mu_s, var_s = pm.portfolio_opt(S,precision_matrix, mu, log_returns_scaled, type = 'sharpe')
+            w_s, mu_s, var_s = pm.portfolio_opt(S,precision_matrix, mu, log_returns_scaled[lwr:i], type = 'sharpe')
 
             portfolio_s = np.dot(price.iloc[i:i + l],w_s)
             port_price_s[alpha_cnt].append(portfolio_s)
@@ -289,7 +300,7 @@ def run(kappa_const, lik_type ,obs_per_graph, asset_type, temp):
             sigmas_s[alpha_cnt].append(sigma_s)
 
             # portfolio weights minimum variance
-            w_m, mu_m, var_m = pm.portfolio_opt(S,precision_matrix, mu, log_returns_scaled, type = 'gmv')
+            w_m, mu_m, var_m = pm.portfolio_opt(S,precision_matrix, mu, log_returns_scaled[lwr:i], type = 'gmv')
 
             portfolio_m = np.dot(price.iloc[i:i + l],w_m)
             port_price_m[alpha_cnt].append(portfolio_m)
@@ -319,6 +330,14 @@ def run(kappa_const, lik_type ,obs_per_graph, asset_type, temp):
             fro_norms[alpha_cnt].append(dg_opt.fro_norm)
             mus[alpha_cnt].append(mu.copy())
 
+            lik_tmp = 0
+            for j in range(dg_opt.nr_graphs):
+                    X_tmp = dg_opt.return_X(j, log_returns_scaled[lwr:i])
+                    lik_tmp += log_lik(np.zeros(dg_opt.theta[j].shape[1]) ,np.linalg.inv(dg_opt.theta[j]), X_tmp-mu, liktype = lik_type, nu = dg_opt.nu[j])
+
+            likelihoods[alpha_cnt].append(lik_tmp)
+
+
             # Guess next theta
             theta_init = dg_opt.theta.copy()
             #theta_init = np.vstack((theta_init, [theta_init[-1]]))
@@ -342,14 +361,17 @@ def run(kappa_const, lik_type ,obs_per_graph, asset_type, temp):
 
 if __name__ == "__main__":
 
-    for n in [20, 50, 100]:
-        for k in [0.1, 0.2, 0.3, 0.5, 0.7, 1]:
+    for n in [50, 100]:
+        for k in [0.1, 0.2, 0.3, 0.4, 0.5, 0.6]:
 
-            run(k, 'gaussian', n, 'ind', 'ridge')
-            run(k, 't', n, 'ind', 'ridge')
+            run(k, 't', n, 'etf', 'element-wise')
+            run(k, 'gaussian', n, 'etf', 'element-wise')
+            
+            run(k, 'gaussian', n, 'etf', 'ridge')
+            run(k, 't', n, 'etf', 'ridge')
 
-            run(k, 'gaussian', n, 'ind', 'global-reconstruction')
-            run(k, 't', n, 'ind', 'global-reconstruction')
+            run(k, 'gaussian', n, 'etf', 'global-reconstruction')
+            run(k, 't', n, 'etf', 'global-reconstruction')
 
             # run(k, 'gaussian', n, 'ind', 'block-wise-reconstruction')
             # run(k, 't', n, 'ind', 'block-wise-reconstruction')
