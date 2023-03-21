@@ -62,7 +62,7 @@ def max_drawdown(price):
   return np.min((price/np.array(pd.DataFrame(price).cummax().iloc[:,0])-1))
 
 
-def portfolio_opt(S,precision_matrix, mu, X, type):
+def portfolio_opt(S,precision_matrix, mu, X, type, w_fix = True):
 
 
   if type == 'uniform':
@@ -71,12 +71,14 @@ def portfolio_opt(S,precision_matrix, mu, X, type):
       var_p = np.dot(w,S).dot(w)
   elif type == 'sharpe':
       w = np.dot(precision_matrix, mu)/np.dot(np.ones(S.shape[0]), precision_matrix).dot(mu) 
-      w = fix_weight(w)
+      if w_fix:
+        w = fix_weight(w)
       mu_p = np.mean(np.dot(X, w))
       var_p = np.dot(w,S).dot(w)
   elif type == 'gmv':
       w = np.dot(precision_matrix, np.ones(S.shape[0]))/np.dot(np.ones(S.shape[0]), precision_matrix).dot(np.ones(S.shape[0])) 
-      w = fix_weight(w)
+      if w_fix:
+        w = fix_weight(w)
       mu_p = np.mean(np.dot(X, w))
       var_p = np.dot(w,S).dot(w)
 

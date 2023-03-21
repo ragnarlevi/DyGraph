@@ -166,6 +166,7 @@ class dygl(RootDygl):
         while self.iteration < self.max_iter:
 
             if self.nr_graphs< nr_workers:
+                
                 nr_workers = self.nr_graphs
             
             # update theta in parallel
@@ -194,6 +195,7 @@ class dygl(RootDygl):
 
             else:
                 for i in range(self.nr_graphs):
+                    
                     self.theta[i], self.gamma[i], _ = theta_update(i,
                                                         self.get_A(i), 
                                                         self.S[i], 

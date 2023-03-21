@@ -166,16 +166,16 @@ def run(lik_type, asset_type):
     if np.isin(lik_type, ['group-t', 'skew-group-t']):
         max_iter = 10
     else:
-        max_iter = 500
+        max_iter = 1000
 
     # 0 util, energy, materials, industrials
     # 1 communication, conusmer, consumer
     # health, real, fin. TECH
     
 
-    alphas = [0.001, 0.01,0.025, 0.05, 0.075, 0.1, 0.125, 0.15, 0.175, 0.2, 0.225, 0.25]
+    alphas = [0, 0.001, 0.01,0.025, 0.05, 0.075, 0.1, 0.125, 0.15, 0.175, 0.2, 0.225, 0.25, 0.3, 0.35, 0.4]
     time_index = range(500, 1600, l)
-    tol = 1e-6
+    tol = 1e-8
   
     pbar = tqdm.tqdm(total = len(time_index), position=1)
 
@@ -206,6 +206,8 @@ def run(lik_type, asset_type):
     sigmas_s = {i: [] for i in range(len(alphas))}
     sigmas_m = {i: [] for i in range(len(alphas))}
     time_forecast = {i: [] for i in range(len(alphas))}
+    likelihoods = {i: [] for i in range(len(alphas))}
+
 
 
 
@@ -289,7 +291,7 @@ def run(lik_type, asset_type):
 
             
             # portfolio weights sharpe
-            w_s, mu_s, var_s = pm.portfolio_opt(S,precision_matrix, mu, log_returns_scaled, type = 'sharpe')
+            w_s, mu_s, var_s = pm.portfolio_opt(S,precision_matrix, mu, log_returns_scaled[lwr:i], type = 'sharpe')
             portfolio_s = np.dot(np.array(price.iloc[i:i + l]),w_s)
             port_price_s[alpha_cnt].append(portfolio_s)
             log_returns_s = np.array(100*np.log(1+pd.DataFrame(portfolio_s).pct_change()).dropna())
@@ -306,7 +308,7 @@ def run(lik_type, asset_type):
             sigmas_s[alpha_cnt].append(sigma_s)
 
             # portfolio weights minimum variance
-            w_m, mu_m, var_m = pm.portfolio_opt(S,precision_matrix, mu, log_returns_scaled, type = 'gmv')
+            w_m, mu_m, var_m = pm.portfolio_opt(S,precision_matrix, mu, log_returns_scaled[lwr:i], type = 'gmv')
 
             portfolio_m = np.dot(price.iloc[i:i + l],w_m)
             port_price_m[alpha_cnt].append(portfolio_m)
@@ -335,6 +337,7 @@ def run(lik_type, asset_type):
             nus[alpha_cnt].append(nu)
             fro_norms[alpha_cnt].append(fro_norm)
             mus[alpha_cnt].append(mu.copy())
+            likelihoods[alpha_cnt].append(log_lik(np.zeros(dg_opt.theta[-1].shape[1]) ,np.linalg.inv(dg_opt.theta[-1]), log_returns_scaled[lwr:i]-mu, liktype = lik_type, nu = dg_opt.nu[-1]))
 
             # Guess next theta
             # if lik_type in ('groupt-t', 'skew-group-t', 't', 'gaussian'):
@@ -344,7 +347,7 @@ def run(lik_type, asset_type):
 
 
             out_dict = {'alphas':alphas, 'time_index':time_index, 'time_change':price.index[time_index], 'time_forecast':time_forecast, 'ticker_list':ticker_list, 
-                        'groups':groups, 
+                        'groups':groups, 'likelihoods':likelihoods,
                         'price':price, 'X':log_returns_scaled, 'l':l, 'obs_per_graph':obs_per_graph, 'gammas':gammas, 'Ss':Ss, 'Cs':Cs,
                         'tol':tol, 'max_iter':max_iter,'ebics':ebics,'thetas':thetas, 'nus':nus, 'fro_norms':fro_norms,'mus':mus,
                         'sharpes_s':sharpes_s,  'mdds_s':mdds_s,   'ws_s':ws_s, 'mus_s':mus_s, 'vars_s':vars_s, 'rs_s':rs_s, 
@@ -352,7 +355,7 @@ def run(lik_type, asset_type):
                         'sharpes_m':sharpes_m,  'mdds_m':mdds_m,   'ws_m':ws_m, 'mus_m':mus_m, 'vars_m':vars_m, 'rs_m':rs_m, 
                         'omegas_m':omegas_m,'port_price_m':port_price_m, 'sigmas_m':sigmas_m}
             
-            with open(f'data/case_study_etf/{name}_static.pkl', 'wb') as handle:
+            with open(f'data/case_study_etf/{name}_static_no_w_constr.pkl', 'wb') as handle:
                 pickle.dump(out_dict, handle, protocol=pickle.HIGHEST_PROTOCOL)
 
         # pbar.close()
@@ -361,6 +364,7 @@ def run(lik_type, asset_type):
 
 if __name__ == "__main__":
 
-    run("group-t", "ind")
+    run("t", "etf")
+    run("gaussian", "etf")
 
 

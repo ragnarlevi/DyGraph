@@ -175,7 +175,7 @@ def run(kappa_const, lik_type ,obs_per_graph, asset_type, temp):
     # health, real, fin. TECH
     
 
-    alphas = [0.05]#[0.001, 0.01, 0.025, 0.05, 0.075, 0.1, 0.125, 0.15, 0.2, 0.25, 0.3, 0.35]
+    alphas = [0, 0.001, 0.01,0.025, 0.05, 0.075, 0.1, 0.125, 0.15, 0.175, 0.2, 0.225, 0.25, 0.3, 0.35, 0.4]
     time_index = range(500, 1600, l)
     tol = 1e-8
   
@@ -326,7 +326,7 @@ def run(kappa_const, lik_type ,obs_per_graph, asset_type, temp):
             Ss[alpha_cnt].append(S)
             Cs[alpha_cnt].append(C)
             gammas[alpha_cnt].append(dg_opt.gamma.copy())
-            nus[alpha_cnt].append(dg_opt.nu[-1])
+            nus[alpha_cnt].append(dg_opt.nu.copy())
             fro_norms[alpha_cnt].append(dg_opt.fro_norm)
             mus[alpha_cnt].append(mu.copy())
 
@@ -346,7 +346,7 @@ def run(kappa_const, lik_type ,obs_per_graph, asset_type, temp):
 
 
             out_dict = {'alphas':alphas, 'time_index':time_index, 'time_change':price.index[time_index], 'time_forecast':time_forecast, 'ticker_list':ticker_list, 
-                        'groups':groups, 'kappa':kappa, 'temporal_penalty':temp,
+                        'groups':groups, 'kappa':kappa, 'temporal_penalty':temp, 'likelihoods':likelihoods,
                         'price':price, 'X':log_returns_scaled, 'l':l, 'obs_per_graph':obs_per_graph, 'gammas':gammas, 'Ss':Ss, 'Cs':Cs,
                         'tol':tol, 'max_iter':max_iter,'ebics':ebics,'thetas':thetas, 'nus':nus, 'fro_norms':fro_norms,'mus':mus,
                         'sharpes_s':sharpes_s,  'mdds_s':mdds_s,   'ws_s':ws_s, 'mus_s':mus_s, 'vars_s':vars_s, 'rs_s':rs_s, 
