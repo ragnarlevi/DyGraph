@@ -16,14 +16,20 @@ from collections import defaultdict
 import scipy.integrate as integrate
 from sklearn.covariance import LedoitWolf
 from multiprocessing.pool import Pool
+from pmdarima.arima import auto_arima
+from arch import arch_model
 
+def log_lik(mean,cov, X, liktype, nu = None, prec = None, gamma = None, n = 10):
 
-def log_lik(mean,cov, X, liktype, nu = None):
-
-    if liktype == "gaussian":
+    if np.isin(liktype, ['gaussian', 'LedoitWolf', 'covariance']):
         lik = np.sum(multivariate_normal.logpdf(X, mean=mean, cov=cov, allow_singular=True))
     elif liktype == "t":
         lik = np.sum(multivariate_t.logpdf(X,loc = mean, shape=cov, df = nu))
+    elif np.isin(liktype, ("skew-group-t", "group-t")):
+        lik  = 0.0
+        #print(X)
+        for i in range(X.shape[0]):
+            lik += np.log(dg.generalized_skew_t( X[i], prec, nu = nu, gamma = gamma, n = n))
     else:
         assert False, "likelihood not correct"
 
@@ -60,29 +66,6 @@ def _T(u,nu):
 
 
 def integrand(u,nu,i,j):
-    """
-    Integrand for element (i,j) in the matrix D_1 as defined in paper. Used by Group-T and generalized skew-T
-
-    Parameters
-    ----------------------
-    S: np.array
-        Covariance matrix
-    gamma: np.array
-        vector of current gamma estimate
-    x: np.array
-        Vector of features /(1 observation)
-    nu: list
-        List of degress of freedom for each feature in x
-    i: int 
-        Row of D_1 to be calcualted
-    j: int
-        Column of D_1 to be calulcate
-
-    Returns
-    ---------------------
-     :  float
-        Integrand value
-    """
     T_vec = _T(u,nu)
 
 
@@ -92,28 +75,8 @@ def integrand(u,nu,i,j):
 
 integrand = np.vectorize(integrand,excluded = [1,2,3])
 
+
 def C_group(d, nu,m):
-    """
-    D1 EM matrix as defined in paper. Used by Group-T and generalized skew-T
-
-    Parameters
-    ----------------------
-    theta: np.array
-        Curren estimate of Precision matrix
-    x: np.array
-        Vector of features /(1 observation)
-    nu: list
-        List of degress of freedom for each feature in x
-    m: list
-        list containing the group membership of each feautre in x
-    n: int
-        Number of Gaussian-Qudrature terms for the integration
-
-    Returns
-    ---------------------
-     : np.array
-        D1 EM matrix
-    """
     
     combination_calculated = defaultdict(lambda: None)
     D = np.zeros(shape = (d,d))
@@ -130,7 +93,68 @@ def C_group(d, nu,m):
     return np.triu(D,0) + np.triu(D,1).T
 
 
-def run(lik_type, asset_type):
+
+def integrand2(u,nu,i,j):
+
+    T_vec = _T(u,nu)
+    e_val = nu/(nu-2)
+
+
+    A = 1/T_vec
+    return (A[i]-e_val[i])*(A[j]-e_val[j])
+
+
+
+integrand2 = np.vectorize(integrand2,excluded = [1,2,3])
+
+
+def C_skew(d, nu,m):
+    
+    combination_calculated = defaultdict(lambda: None)
+    D = np.zeros(shape = (d,d))
+
+    for i in range(D.shape[0]):
+        for j in range(i, D.shape[0]):
+            combintaion = ''.join(sorted(str(m[i])+str(m[j])))
+            if combination_calculated[combintaion] is None:
+                D[i,j] =  integrate.quad(integrand2, 0, 1 ,args = (nu,i,j))[0]
+                combination_calculated[combintaion] = D[i,j]
+            else:
+                D[i,j] = combination_calculated[combintaion]
+
+    return np.triu(D,0) + np.triu(D,1).T
+
+
+def integrand3(u,nu,i,j, gamma):
+
+    T_vec = _T(u,nu)
+    e_val = nu/(nu-2)
+
+
+    A = 1/T_vec
+    A2 = 1/np.sqrt(T_vec)
+    return A[i]*gamma[i]*A2[j]-e_val[i]*gamma[i]*A2[j]
+
+
+
+integrand3 = np.vectorize(integrand3,excluded = [1,2,3,4])
+
+
+def C_cov(d, nu,m, gamma):
+    
+    combination_calculated = defaultdict(lambda: None)
+    D = np.zeros(shape = (d,d))
+
+    for i in range(D.shape[0]):
+        for j in range(D.shape[0]):
+
+            D[i,j] =  integrate.quad(integrand3, 0, 1 ,args = (nu,i,j,gamma))[0]
+
+
+    return D
+
+
+def run(lik_type, asset_type, arima_fit = False, garch_fit = False):
     
     # parameters
     obs_per_graph = 500
@@ -152,6 +176,17 @@ def run(lik_type, asset_type):
         groups = data['groups']
 
         name = f'{lik_type}_nr_quad_{nr_quad}_ind_30'
+    if asset_type == 'ind100':
+        with open(f'data/case_study_etf/raw_ind_100.pkl', 'rb') as handle:
+            data = pickle.load(handle)
+
+        ticker_list = data['ticker_list']
+        #log_returns = data['log_returns']
+        log_returns_scaled = data['log_returns_scaled']
+        price = data['price']
+        groups = data['groups']
+
+        name = f'{lik_type}_nr_quad_{nr_quad}_ind_100'
     else:
         with open(f'data/case_study_etf/raw_etf.pkl', 'rb') as handle:
             data = pickle.load(handle)
@@ -164,18 +199,23 @@ def run(lik_type, asset_type):
         name = f'{lik_type}_nr_quad_{nr_quad}_{asset_type}'
 
     if np.isin(lik_type, ['group-t', 'skew-group-t']):
-        max_iter = 10
+        max_iter = 30
     else:
-        max_iter = 1000
+        max_iter = 500
 
     # 0 util, energy, materials, industrials
     # 1 communication, conusmer, consumer
     # health, real, fin. TECH
     
+    if arima_fit:
+        name = name + "_arima"
+    if garch_fit:
+         name = name + "_garch"
 
-    alphas = [0, 0.001, 0.01,0.025, 0.05, 0.075, 0.1, 0.125, 0.15, 0.175, 0.2, 0.225, 0.25, 0.3, 0.35, 0.4]
-    time_index = range(500, 1600, l)
-    tol = 1e-8
+
+    alphas = np.array([0.001, 0.01, 0.025, 0.05, 0.075, 0.1, 0.2, 0.4])
+    time_index = range(500, 1580, l)
+    tol = 1e-6
   
     pbar = tqdm.tqdm(total = len(time_index), position=1)
 
@@ -205,19 +245,41 @@ def run(lik_type, asset_type):
     port_price_m = {i: [] for i in range(len(alphas))}
     sigmas_s = {i: [] for i in range(len(alphas))}
     sigmas_m = {i: [] for i in range(len(alphas))}
-    time_forecast = {i: [] for i in range(len(alphas))}
-    likelihoods = {i: [] for i in range(len(alphas))}
+    divs_s = {i: [] for i in range(len(alphas))}
+    divs_m = {i: [] for i in range(len(alphas))}
 
+    port_price_u = {i: [] for i in range(len(alphas))}
+    sharpes_u = {i: [] for i in range(len(alphas))}
+    mdds_u = {i: [] for i in range(len(alphas))}
+    omegas_u = {i: [] for i in range(len(alphas))}
+    ws_u = {i: [] for i in range(len(alphas))}
+    mus_u = {i: [] for i in range(len(alphas))}
+    vars_u = {i: [] for i in range(len(alphas))}
+    rs_u = {i: [] for i in range(len(alphas))}
+    sigmas_u = {i: [] for i in range(len(alphas))}
+    divs_u = {i: [] for i in range(len(alphas))}
+
+
+    time_forecast = {i: [] for i in range(len(alphas))}
+    
+    likelihoods = {i: [] for i in range(len(alphas))}
+    future_likelihoods = {i: [] for i in range(len(alphas))}
+    AIC = {i: [] for i in range(len(alphas))}
+    future_AIC = {i: [] for i in range(len(alphas))}
+    BIC = {i: [] for i in range(len(alphas))}
+    future_BIC = {i: [] for i in range(len(alphas))}
+    nr_params = {i: [] for i in range(len(alphas))}
 
 
 
     if np.isin(lik_type, ['group-t', 'skew-group-t']):
-        with open(f'data/case_study_etf/t_nr_quad_10_ind_30_static.pkl', 'rb') as handle:
+        with open(f'data/case_study_etf/t_nr_quad_5_etf_static_l_{l}.pkl', 'rb') as handle:
             t_port = pickle.load(handle)
-        theta_init = t_port['thetas'][0][0]
+        theta_init = t_port['thetas'][4][0]
     else:
         theta_init = None
 
+    
     pbar = tqdm.tqdm(total = len(time_index)*len(alphas), position=1)
     for alpha_cnt, alpha in enumerate(alphas):
 
@@ -231,9 +293,39 @@ def run(lik_type, asset_type):
 
 
             pbar.set_description(f"i {i}, alpha {alpha}")
-            mu = np.mean(log_returns_scaled.iloc[lwr:i],axis = 0)
+            mu = np.array(np.mean(log_returns_scaled.iloc[lwr:i],axis = 0))
+
+            if arima_fit:
+                X = []
+                arimas = []
+                for s in range(log_returns_scaled.shape[1]):
+
+                    out_arima = auto_arima(np.array(log_returns_scaled.iloc[lwr:i,s]-mu[s]), seasonal=False)
+                    X.append(out_arima.resid())
+                    arimas.append(out_arima)
+                
+                X = np.array(X).T
+            elif garch_fit:
+                X = []
+                arimas = []
+                mu = []
+                for s in range(log_returns_scaled.shape[1]):
+
+                    returns = np.array(log_returns_scaled.iloc[lwr:i,s])
+                    am = arch_model(returns, vol = "Garch", p = 1, o = 0, q = 1, dist = 'studentst',mean = 'Constant')
+                    res = am.fit()
+                    X.append(res.resid)
+                    arimas.append(res)  
+                    mu.append(res.params['mu'])
+
+                X = np.array(X).T
+                mu = np.array(mu)
+
+            else:
+                X = np.array(log_returns_scaled.iloc[lwr:i]-mu)
+
             if lik_type == 'covariance':
-                S = np.cov(np.array(log_returns_scaled[lwr:i]-mu).T)
+                S = np.cov(X.T)
                 
 
 
@@ -241,11 +333,11 @@ def run(lik_type, asset_type):
                 gamma = None
                 nu = None
                 fro_norm = None
-                theta = precision_matrix.copy()
+                theta = np.array([precision_matrix.copy()])
                 C = 1
 
             elif lik_type == 'LedoitWolf':
-                cov = LedoitWolf().fit(np.array(log_returns_scaled[lwr:i]-mu))
+                cov = LedoitWolf().fit(X)
                 S = cov.covariance_
                 
 
@@ -254,31 +346,35 @@ def run(lik_type, asset_type):
                 gamma = None
                 nu = None
                 fro_norm = None
-                theta = precision_matrix.copy()
+                theta = np.array([precision_matrix.copy()])
                 C = 1
-            else:
-                dg_opt = dg.sgl(max_iter = max_iter, lamda = obs_per_graph*alpha, tol = tol)
-                dg_opt.fit(np.array(log_returns_scaled[lwr:i]-mu),  lik_type=lik_type, nu = None,verbose=True, 
-                        theta_init= theta_init, groups = groups,nr_quad = nr_quad, pool = Pool(12))
                 
-
-
+            else:
+                dg_opt = dg.sgl_outer_em(max_iter = max_iter, lamda = obs_per_graph*alpha, tol = tol)
+                dg_opt.fit(X,  lik_type=lik_type, nu = None, verbose=True, nr_workers = 12,  max_admm_iter = 100, groups = groups, nr_quad = nr_quad, theta_init=theta_init)
+                
                 
                 # get precision/covariance
                 precision_matrix = dg_opt.theta[-1].copy()
                 precision_matrix[np.abs(precision_matrix)<1e-5]= 0.0
                 S = np.linalg.inv(precision_matrix)
+                gamma = dg_opt.gamma[-1].copy()
+                print(gamma)
+
                 if lik_type == 't':
                     C = (dg_opt.nu[-1]/(dg_opt.nu[-1]-2))
                     S = C*S
                 elif lik_type == 'group-t':
                     C = C_group(len(ticker_list), dg_opt.nu[-1], groups)
                     S = S*C
+                elif lik_type == "skew-group-t":
+                    C = C_group(len(ticker_list), dg_opt.nu[-1], groups)
+                    skew_C = C_skew(len(ticker_list), dg_opt.nu[-1], groups)
+                    cov_C = C_cov(len(ticker_list), dg_opt.nu[-1], groups, gamma)
+                    S = S*C + np.multiply(skew_C, np.outer(gamma, gamma)) +  cov_C + cov_C.T
                 else:
                     C = 1
 
-
-                gamma = dg_opt.gamma.copy()
                 nu = dg_opt.nu[-1]
                 fro_norm = dg_opt.fro_norm
                 theta = dg_opt.theta.copy()
@@ -286,15 +382,15 @@ def run(lik_type, asset_type):
                 # Update precision matrix 
                 precision_matrix = np.linalg.inv(S) 
 
-
-
-
             
             # portfolio weights sharpe
-            w_s, mu_s, var_s = pm.portfolio_opt(S,precision_matrix, mu, log_returns_scaled[lwr:i], type = 'sharpe')
-            portfolio_s = np.dot(np.array(price.iloc[i:i + l]),w_s)
+            w_s, mu_s, var_s = pm.portfolio_opt(S, precision_matrix, mu, X+mu, type = 'sharpe', w_fix=True)
+            portfolio_s = np.dot(price.iloc[i:i+l],w_s) # np.dot(np.array(price.iloc[i:i + l]),w_s)
             port_price_s[alpha_cnt].append(portfolio_s)
+
             log_returns_s = np.array(100*np.log(1+pd.DataFrame(portfolio_s).pct_change()).dropna())
+  
+        
             r_s = (portfolio_s[-1]-portfolio_s[0])/portfolio_s[0]
             sigma_s = np.std(log_returns_s)
             sharpe_s = pm.sharpe(r_s,sigma_s)
@@ -306,11 +402,12 @@ def run(lik_type, asset_type):
             vars_s[alpha_cnt].append(var_s)
             rs_s[alpha_cnt].append(r_s)
             sigmas_s[alpha_cnt].append(sigma_s)
+            divs_s[alpha_cnt].append(pm.div_ratio(w_s, S))
 
             # portfolio weights minimum variance
-            w_m, mu_m, var_m = pm.portfolio_opt(S,precision_matrix, mu, log_returns_scaled[lwr:i], type = 'gmv')
+            w_m, mu_m, var_m = pm.portfolio_opt(S,precision_matrix, mu, X+mu, type = 'gmv', w_fix=True)
 
-            portfolio_m = np.dot(price.iloc[i:i + l],w_m)
+            portfolio_m = np.dot(price.iloc[i:i+l],w_m) # np.dot(price.iloc[i:i + l],w_m)
             port_price_m[alpha_cnt].append(portfolio_m)
             log_returns_m = np.array(100*np.log(1+pd.DataFrame(portfolio_m).pct_change()).dropna())
             r_m = (portfolio_m[-1]-portfolio_m[0])/portfolio_m[0]
@@ -324,6 +421,24 @@ def run(lik_type, asset_type):
             vars_m[alpha_cnt].append(var_m)
             rs_m[alpha_cnt].append(r_m)
             sigmas_m[alpha_cnt].append(sigma_m)
+            divs_m[alpha_cnt].append(pm.div_ratio(w_m, S))
+
+            w_u, mu_u, var_u = pm.portfolio_opt(S,precision_matrix, mu,  X+mu, type = 'uniform', w_fix=True)
+            portfolio_u = np.dot(price.iloc[i:i+l],w_u) #np.dot(price.iloc[i:i + l],w_u)
+            port_price_u[alpha_cnt].append(portfolio_u)
+            log_returns_u = np.array(100*np.log(1+pd.DataFrame(portfolio_u).pct_change()).dropna())
+            r_u = (portfolio_u[-1]-portfolio_u[0])/portfolio_u[0]
+            sigma_u = np.std(log_returns_u)
+            sharpe_u = pm.sharpe(r_u,sigma_u)
+            sharpes_u[alpha_cnt].append(sharpe_u)
+            mdds_u[alpha_cnt].append(pm.max_drawdown(portfolio_u))
+            omegas_u[alpha_cnt].append(pm.omega(np.squeeze(log_returns_u)))
+            ws_u[alpha_cnt].append(w_u)
+            mus_u[alpha_cnt].append(mu_u)
+            vars_u[alpha_cnt].append(var_u)
+            rs_u[alpha_cnt].append(r_u)
+            sigmas_u[alpha_cnt].append(sigma_u)
+            divs_u[alpha_cnt].append(pm.div_ratio(w_u, S))
 
             
 
@@ -337,34 +452,91 @@ def run(lik_type, asset_type):
             nus[alpha_cnt].append(nu)
             fro_norms[alpha_cnt].append(fro_norm)
             mus[alpha_cnt].append(mu.copy())
-            likelihoods[alpha_cnt].append(log_lik(np.zeros(dg_opt.theta[-1].shape[1]) ,np.linalg.inv(dg_opt.theta[-1]), log_returns_scaled[lwr:i]-mu, liktype = lik_type, nu = dg_opt.nu[-1]))
+
+
+            likelihoods[alpha_cnt].append(log_lik(np.zeros(theta[-1].shape[1]) ,
+                                                  np.linalg.inv(theta[-1]), 
+                                                  np.array(X-mu), 
+                                                  liktype = lik_type, 
+                                                  nu = nu,
+                                                  prec = theta[-1].copy(),
+                                                  gamma = gamma,
+                                                  n = 10))
+            
+            if arima_fit:
+                next_x = []
+                for s in range(log_returns_scaled.shape[1]):
+                    next_x.append(arimas[s].predict(l))
+                next_x = np.array(next_x).T
+                next_x = next_x - np.array(log_returns_scaled.iloc[i:i+l]-mu)
+            else:
+                next_x = np.array(log_returns_scaled.iloc[i:i+l]-mu)
+
+            future_likelihoods[alpha_cnt].append(log_lik(np.zeros(theta[-1].shape[1]) ,
+                                                  np.linalg.inv(theta[-1]), 
+                                                  next_x, 
+                                                  liktype = lik_type, 
+                                                  nu = nu,
+                                                  prec = theta[-1].copy(),
+                                                  gamma = gamma,
+                                                  n = 10))
+
+
+            theta_t = theta[-1].copy()
+            theta_t[np.abs(theta_t)<1e-2] = 0
+            #print(theta_t)
+            if lik_type == 't':
+                nr_params[alpha_cnt].append(np.sum(theta_t[np.triu_indices(theta_t.shape[0],1)] != 0) + 1.0)
+            elif lik_type == 'group-t':
+                nr_params[alpha_cnt].append(np.sum(theta_t[np.triu_indices(theta_t.shape[0],1)] != 0) + float(len(nu)))
+            elif lik_type == 'skew-group-t':
+                nr_params[alpha_cnt].append(np.sum(theta_t[np.triu_indices(theta_t.shape[0],1)] != 0) + float(len(nu)) + float(theta_t.shape[0]))
+            else:
+                nr_params[alpha_cnt].append(np.sum(theta_t[np.triu_indices(theta_t.shape[0],1)] != 0))
+            #print(nr_params[alpha_cnt])
+            #print(nr_params[alpha_cnt][-1])
+
+            AIC[alpha_cnt].append(2*(nr_params[alpha_cnt][-1] - likelihoods[alpha_cnt][-1]))
+            future_AIC[alpha_cnt].append(2*(nr_params[alpha_cnt][-1] - future_likelihoods[alpha_cnt][-1]))
+            BIC[alpha_cnt].append((nr_params[alpha_cnt][-1]*np.log(500) - 2*likelihoods[alpha_cnt][-1]))
+            future_BIC[alpha_cnt].append((nr_params[alpha_cnt][-1]*np.log(20) - 2*future_likelihoods[alpha_cnt][-1]))
 
             # Guess next theta
-            # if lik_type in ('groupt-t', 'skew-group-t', 't', 'gaussian'):
-            #     theta_init = dg_opt.theta.copy()
-            #     theta_init = np.vstack((theta_init, [theta_init[-1]]))
+            if lik_type in ('groupt-t', 'skew-group-t', 't', 'gaussian'):
+                theta_init = dg_opt.theta.copy()
+                # theta_init = np.vstack((theta_init, [theta_init[-1]]))
             pbar.update()
 
 
             out_dict = {'alphas':alphas, 'time_index':time_index, 'time_change':price.index[time_index], 'time_forecast':time_forecast, 'ticker_list':ticker_list, 
-                        'groups':groups, 'likelihoods':likelihoods,
+                        'groups':groups, 'future_likelihoods':future_likelihoods, 'nr_params':nr_params, 'likelihoods':likelihoods,
+                        'AIC':AIC, 'future_AIC':future_AIC, 'BIC':BIC, 'future_BIC':future_BIC, 'nr_quad':nr_quad,
                         'price':price, 'X':log_returns_scaled, 'l':l, 'obs_per_graph':obs_per_graph, 'gammas':gammas, 'Ss':Ss, 'Cs':Cs,
                         'tol':tol, 'max_iter':max_iter,'ebics':ebics,'thetas':thetas, 'nus':nus, 'fro_norms':fro_norms,'mus':mus,
                         'sharpes_s':sharpes_s,  'mdds_s':mdds_s,   'ws_s':ws_s, 'mus_s':mus_s, 'vars_s':vars_s, 'rs_s':rs_s, 
-                        'omegas_s':omegas_s,'port_price_s':port_price_s, 'sigmas_s':sigmas_s,
+                        'omegas_s':omegas_s,'port_price_s':port_price_s, 'sigmas_s':sigmas_s , 'divs_s':divs_s, 
                         'sharpes_m':sharpes_m,  'mdds_m':mdds_m,   'ws_m':ws_m, 'mus_m':mus_m, 'vars_m':vars_m, 'rs_m':rs_m, 
-                        'omegas_m':omegas_m,'port_price_m':port_price_m, 'sigmas_m':sigmas_m}
+                        'omegas_m':omegas_m,'port_price_m':port_price_m, 'sigmas_m':sigmas_m , 'divs_m':divs_m,
+                        'sharpes_u':sharpes_u,  'mdds_u':mdds_u,   'ws_u':ws_u, 'mus_u':mus_u, 'vars_u':vars_u, 'rs_u':rs_u, 
+                        'omegas_u':omegas_u,'port_price_u':port_price_u, 'sigmas_u':sigmas_u, 'divs_u':divs_u}
             
-            with open(f'data/case_study_etf/{name}_static_no_w_constr.pkl', 'wb') as handle:
+            with open(f'data/case_study_etf/{name}_static_l_{l}_outer_em_no_init.pkl', 'wb') as handle:
                 pickle.dump(out_dict, handle, protocol=pickle.HIGHEST_PROTOCOL)
 
         # pbar.close()
-        if lik_type in ('groupt-t', 'skew-group-t', 't', 'gaussian'):
-            theta_init = dg_opt.theta[:20].copy()
+        # if lik_type in ('groupt-t', 'skew-group-t', 't', 'gaussian'):
+        #     theta_init = dg_opt.theta[:20].copy()
 
 if __name__ == "__main__":
 
-    run("t", "etf")
-    run("gaussian", "etf")
+    # run("skew-group-t", "etf")
+    #run("gaussian", "etf",  arima_fit=False, garch_fit=True)
+    # run("t", "etf",  arima_fit=False, garch_fit=True)
+    #run("skew-group-t", "etf",  arima_fit=False, garch_fit=False)
+    #run("gaussian", "etf",  arima_fit=True)
+    #run("t", "etf",  arima_fit=True)
+    run("LedoitWolf", "etf")
+    run("covariance", "etf")
+    # run("skew-group-t", "etf")
 
 

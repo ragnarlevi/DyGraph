@@ -18,12 +18,17 @@ import yfinance as yf
 from multiprocessing.pool import Pool
 
 
-def log_lik(mean,cov, X, liktype, nu = None):
+def log_lik(mean,cov, X, liktype, nu = None, prec = None, gamma = None, n = 10):
 
     if liktype == "gaussian":
         lik = np.sum(multivariate_normal.logpdf(X, mean=mean, cov=cov, allow_singular=True))
     elif liktype == "t":
         lik = np.sum(multivariate_t.logpdf(X,loc = mean, shape=cov, df = nu))
+    elif np.isin(liktype, ("skew-group-t", "group-t")):
+        lik  = 0.0
+        #print(X)
+        for i in range(X.shape[0]):
+            lik += np.log(dg.generalized_skew_t( X[i], prec, nu = nu, gamma = gamma, n = n))
     else:
         assert False, "likelihood not correct"
 
@@ -162,9 +167,7 @@ def run(kappa_const, lik_type ,obs_per_graph, asset_type, temp):
         groups = data['groups']
         name = f'{lik_type}_nr_quad_{nr_quad}_{asset_type}'
 
-    if np.isin(lik_type, ['group-t', 'skew-group-t']):
-        max_iter = 30
-    else:
+
         max_iter = 1500
 
 
@@ -175,9 +178,9 @@ def run(kappa_const, lik_type ,obs_per_graph, asset_type, temp):
     # health, real, fin. TECH
     
 
-    alphas = [0, 0.001, 0.01,0.025, 0.05, 0.075, 0.1, 0.125, 0.15, 0.175, 0.2, 0.225, 0.25, 0.3, 0.35, 0.4]
+    alphas = np.array([0.001, 0.01, 0.025, 0.05, 0.075, 0.1, 0.2, 0.4])[::-1]
     time_index = range(500, 1600, l)
-    tol = 1e-8
+    tol = 1e-6
   
     pbar = tqdm.tqdm(total = len(time_index), position=1)
 
@@ -216,12 +219,20 @@ def run(kappa_const, lik_type ,obs_per_graph, asset_type, temp):
     sigmas_s = {i: [] for i in range(len(alphas))}
     sigmas_m = {i: [] for i in range(len(alphas))}
     time_forecast = {i: [] for i in range(len(alphas))}
+    
     likelihoods = {i: [] for i in range(len(alphas))}
+    future_likelihoods = {i: [] for i in range(len(alphas))}
+    AIC = {i: [] for i in range(len(alphas))}
+    future_AIC = {i: [] for i in range(len(alphas))}
+    BIC = {i: [] for i in range(len(alphas))}
+    future_BIC = {i: [] for i in range(len(alphas))}
+    nr_params = {i: [] for i in range(len(alphas))}
+
 
 
 
     if np.isin(lik_type, ['group-t', 'skew-group-t']):
-        with open(f'data/case_study_etf/t_nr_quad_10_ind_30_k_0.3_disjoint_{n}.pkl', 'rb') as handle:
+        with open(f'data/case_study_etf/t_nr_quad_10_etf_k_0.3_disjoint_50_element-wise.pkl', 'rb') as handle:
             t_port = pickle.load(handle)
         theta_init = t_port['thetas'][0][0]
     else:
@@ -249,17 +260,17 @@ def run(kappa_const, lik_type ,obs_per_graph, asset_type, temp):
             pbar.set_description(f"i {i}, alpha {alpha}")
             mu = np.mean(log_returns_scaled.iloc[lwr:i],axis = 0)
             
-            if np.isin(lik_type, ['group-t', 'skew-group-t']):
-                dg_opt = dg.dygl(obs_per_graph = obs_per_graph, max_iter = max_iter, lamda = obs_per_graph*alpha, kappa = obs_per_graph*kappa, kappa_gamma=obs_per_graph*kappa_gamma, 
-                            tol = tol, X_type = 'disjoint', l = l)
-                dg_opt.fit(np.array(log_returns_scaled[lwr:i]-mu), nr_workers=1, temporal_penalty=temp, lik_type=lik_type, nu = None,verbose=True, 
-                       theta_init= theta_init, groups = groups,nr_quad = nr_quad, pool = Pool(12))
+            if np.isin(lik_type, ['group-t', 'skew-group-t']):               
+                dg_opt = dg.dygl_outer_em(obs_per_graph = obs_per_graph, max_iter = 30, lamda = obs_per_graph*alpha, kappa = obs_per_graph*kappa, kappa_gamma=obs_per_graph*kappa_gamma, 
+                                          tol = tol, X_type = 'disjoint', l = l)
+                dg_opt.fit(np.array(log_returns_scaled[lwr:i]-mu), nr_workers=12, temporal_penalty=temp, lik_type=lik_type, nu = None,verbose=True, 
+                       theta_init= theta_init, groups = groups, nr_quad = nr_quad, max_admm_iter = 200)
 
             else:
                 dg_opt = dg.dygl(obs_per_graph = obs_per_graph, max_iter = max_iter, lamda = obs_per_graph*alpha, kappa = obs_per_graph*kappa, kappa_gamma=obs_per_graph*kappa_gamma, 
                             tol = tol, X_type = 'disjoint', l = l)
-                dg_opt.fit(np.array(log_returns_scaled[lwr:i]-mu), nr_workers=12, temporal_penalty=temp, lik_type=lik_type, nu = None,verbose=True, 
-                       theta_init= theta_init, groups = groups,nr_quad = nr_quad)
+                dg_opt.fit(np.array(log_returns_scaled[lwr:i]-mu), nr_workers=8, temporal_penalty=temp, lik_type=lik_type, nu = None,verbose=True, 
+                       theta_init= theta_init.copy(), groups = groups,nr_quad = nr_quad)
 
 
             
@@ -330,12 +341,46 @@ def run(kappa_const, lik_type ,obs_per_graph, asset_type, temp):
             fro_norms[alpha_cnt].append(dg_opt.fro_norm)
             mus[alpha_cnt].append(mu.copy())
 
-            lik_tmp = 0
-            for j in range(dg_opt.nr_graphs):
-                    X_tmp = dg_opt.return_X(j, log_returns_scaled[lwr:i])
-                    lik_tmp += log_lik(np.zeros(dg_opt.theta[j].shape[1]) ,np.linalg.inv(dg_opt.theta[j]), X_tmp-mu, liktype = lik_type, nu = dg_opt.nu[j])
+            X =np.array(log_returns_scaled)
+            lik_tmp = []
+            w = obs_per_graph
+            for j in range(len(dg_opt.theta)):
+                X_tmp = X[j*w:(j+1)*w]
+                lik_tmp.append(log_lik(np.zeros(dg_opt.theta[j].shape[1]) ,np.linalg.inv(dg_opt.theta[j]), X_tmp-np.array(mu), liktype = lik_type, prec =dg_opt.theta[j],  nu = dg_opt.nu[j], gamma = dg_opt.gamma[j]))
 
-            likelihoods[alpha_cnt].append(lik_tmp)
+            likelihoods[alpha_cnt].append(np.sum(lik_tmp))
+
+            future_likelihoods[alpha_cnt].append(log_lik(np.zeros(dg_opt.theta[-1].shape[1]) ,
+                                                  np.linalg.inv(dg_opt.theta[-1]), 
+                                                  np.array(X[i:i+20]-np.array(mu)), 
+                                                  liktype = lik_type, 
+                                                  nu = dg_opt.nu[-1],
+                                                  prec = dg_opt.theta[-1],
+                                                  gamma = dg_opt.gamma[-1],
+                                                  n = 10))
+
+
+
+            nr_params_tmp = []
+            for iii in range(len(dg_opt.theta)):
+                theta_t = dg_opt.theta[iii].copy()
+                theta_t[np.abs(theta_t)<1e-2] = 0
+                if lik_type == 't':
+                    nr_params_tmp.append(np.sum(theta_t[np.triu_indices(theta_t.shape[0],1)] != 0) + 1.0)
+                elif lik_type == 'group-t':
+                    nr_params_tmp.append(np.sum(theta_t[np.triu_indices(theta_t.shape[0],1)] != 0) + float(theta_t.shape[0]))
+                elif lik_type == 'skew-group-t':
+                    nr_params_tmp.append(np.sum(theta_t[np.triu_indices(theta_t.shape[0],1)] != 0) + float(theta_t.shape[0]) + float(theta_t.shape[0]))
+                else:
+                    nr_params_tmp.append(np.sum(theta_t[np.triu_indices(theta_t.shape[0],1)] != 0))
+
+            nr_params[alpha_cnt].append(nr_params_tmp)
+            print(nr_params[alpha_cnt])
+
+            AIC[alpha_cnt].append(2*np.sum(nr_params_tmp) -2*np.sum(lik_tmp) )
+            future_AIC[alpha_cnt].append(2*(nr_params_tmp[-1] - future_likelihoods[alpha_cnt][-1]))
+            BIC[alpha_cnt].append(np.sum(nr_params_tmp)*np.log(500) -2*np.sum(lik_tmp) )
+            future_BIC[alpha_cnt].append(nr_params_tmp[-1]*np.log(20) - 2*future_likelihoods[alpha_cnt][-1])
 
 
             # Guess next theta
@@ -346,7 +391,8 @@ def run(kappa_const, lik_type ,obs_per_graph, asset_type, temp):
 
 
             out_dict = {'alphas':alphas, 'time_index':time_index, 'time_change':price.index[time_index], 'time_forecast':time_forecast, 'ticker_list':ticker_list, 
-                        'groups':groups, 'kappa':kappa, 'temporal_penalty':temp, 'likelihoods':likelihoods,
+                        'groups':groups, 'kappa':kappa, 'temporal_penalty':temp, 'likelihoods':likelihoods, 'future_likelihoods':future_likelihoods, 'nr_params':nr_params,
+                        'AIC':AIC, 'future_AIC':future_AIC, 'BIC':BIC, 'future_BIC':future_BIC,
                         'price':price, 'X':log_returns_scaled, 'l':l, 'obs_per_graph':obs_per_graph, 'gammas':gammas, 'Ss':Ss, 'Cs':Cs,
                         'tol':tol, 'max_iter':max_iter,'ebics':ebics,'thetas':thetas, 'nus':nus, 'fro_norms':fro_norms,'mus':mus,
                         'sharpes_s':sharpes_s,  'mdds_s':mdds_s,   'ws_s':ws_s, 'mus_s':mus_s, 'vars_s':vars_s, 'rs_s':rs_s, 
@@ -361,17 +407,20 @@ def run(kappa_const, lik_type ,obs_per_graph, asset_type, temp):
 
 if __name__ == "__main__":
 
-    for n in [50, 100]:
-        for k in [0.1, 0.2, 0.3, 0.4, 0.5, 0.6]:
+    # run(0.1, 't', 50, 'etf', 'element-wise')
+    run(0.4, 'skew-group-t', 50, 'etf', 'element-wise')
 
-            run(k, 't', n, 'etf', 'element-wise')
-            run(k, 'gaussian', n, 'etf', 'element-wise')
+    # for n in [50, 100]:
+    #     for k in [0.1, 0.2, 0.3, 0.4, 0.5, 0.6]:
+
+            # run(k, 't', n, 'etf', 'element-wise')
+            # run(k, 'gaussian', n, 'etf', 'element-wise')
             
-            run(k, 'gaussian', n, 'etf', 'ridge')
-            run(k, 't', n, 'etf', 'ridge')
+            # run(k, 'gaussian', n, 'etf', 'ridge')
+            # run(k, 't', n, 'etf', 'ridge')
 
-            run(k, 'gaussian', n, 'etf', 'global-reconstruction')
-            run(k, 't', n, 'etf', 'global-reconstruction')
+            # run(k, 'gaussian', n, 'etf', 'global-reconstruction')
+            # run(k, 't', n, 'etf', 'global-reconstruction')
 
             # run(k, 'gaussian', n, 'ind', 'block-wise-reconstruction')
             # run(k, 't', n, 'ind', 'block-wise-reconstruction')
