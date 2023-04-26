@@ -6,6 +6,7 @@ from scipy.stats import multivariate_normal, multivariate_t, chi2
 import networkx as nx
 import yfinance as yf
 import sys
+sys.path.insert(0, 'C:/Users/User/Code/DyGraph/src')
 sys.path.insert(0, 'C:/Users/User/Code/DyGraph')
 
 import DyGraph as dg
@@ -264,13 +265,13 @@ def run(kappa_const, lik_type ,obs_per_graph, asset_type, temp):
                 dg_opt = dg.dygl_outer_em(obs_per_graph = obs_per_graph, max_iter = 30, lamda = obs_per_graph*alpha, kappa = obs_per_graph*kappa, kappa_gamma=obs_per_graph*kappa_gamma, 
                                           tol = tol, X_type = 'disjoint', l = l)
                 dg_opt.fit(np.array(log_returns_scaled[lwr:i]-mu), nr_workers=12, temporal_penalty=temp, lik_type=lik_type, nu = None,verbose=True, 
-                       theta_init= theta_init, groups = groups, nr_quad = nr_quad, max_admm_iter = 200)
+                       theta_init= theta_init, groups = groups, nr_quad = nr_quad, max_admm_iter = 200 ,p_node_tol= 1e-6, p_node_max_iter = 1000, bwr_xtol = 1e-7)
 
             else:
                 dg_opt = dg.dygl(obs_per_graph = obs_per_graph, max_iter = max_iter, lamda = obs_per_graph*alpha, kappa = obs_per_graph*kappa, kappa_gamma=obs_per_graph*kappa_gamma, 
                             tol = tol, X_type = 'disjoint', l = l)
                 dg_opt.fit(np.array(log_returns_scaled[lwr:i]-mu), nr_workers=8, temporal_penalty=temp, lik_type=lik_type, nu = None,verbose=True, 
-                       theta_init= theta_init.copy(), groups = groups,nr_quad = nr_quad)
+                       theta_init= theta_init, groups = groups,nr_quad = nr_quad, p_node_tol= 1e-6, p_node_max_iter = 1000, bwr_xtol = 1e-7)
 
 
             
@@ -408,10 +409,10 @@ def run(kappa_const, lik_type ,obs_per_graph, asset_type, temp):
 if __name__ == "__main__":
 
     # run(0.1, 't', 50, 'etf', 'element-wise')
-    run(0.4, 'skew-group-t', 50, 'etf', 'element-wise')
+    # run(0.4, 'skew-group-t', 50, 'etf', 'element-wise')
 
-    # for n in [50, 100]:
-    #     for k in [0.1, 0.2, 0.3, 0.4, 0.5, 0.6]:
+    for n in [50]:
+        for k in [0.5]:
 
             # run(k, 't', n, 'etf', 'element-wise')
             # run(k, 'gaussian', n, 'etf', 'element-wise')
@@ -422,11 +423,11 @@ if __name__ == "__main__":
             # run(k, 'gaussian', n, 'etf', 'global-reconstruction')
             # run(k, 't', n, 'etf', 'global-reconstruction')
 
-            # run(k, 'gaussian', n, 'ind', 'block-wise-reconstruction')
-            # run(k, 't', n, 'ind', 'block-wise-reconstruction')
+            run(k, 'gaussian', n, 'etf', 'block-wise-reconstruction')
+            run(k, 't', n, 'etf', 'block-wise-reconstruction')
 
-            # run(k, 'gaussian', n, 'ind', 'perturbed-node')
-            # run(k, 't', n, 'ind', 'perturbed-node')
+            run(k, 'gaussian', n, 'etf', 'perturbed-node')
+            run(k, 't', n, 'etf', 'perturbed-node')
 
 
 
