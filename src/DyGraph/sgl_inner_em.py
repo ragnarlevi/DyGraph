@@ -1,13 +1,10 @@
 
-
 # Dynamic graph estimation in parallel
-
 from decimal import Decimal
-import numpy as np
 import warnings
-import scipy
-import tqdm
 from multiprocessing.pool import Pool
+import numpy as np
+import tqdm
 from DyGraph.dygl_utils import theta_update, soft_threshold_odd
 from DyGraph.RootDygl import RootDygl
 
@@ -15,52 +12,38 @@ class sgl(RootDygl):
 
 
     def __init__(self, max_iter, lamda, tol = 1e-6) -> None:
-
         """
         Parameters
         ------------------
         obs_per_graph: int,
             Observations used to construct each each matrix, can be 1 or larger
-
-
         max_iter: int,
             Maximum number of iterations
-        
         lambda: float,
             regularization strength used for z0 l1 off diagonal 
-
         kappa: float,
             regularization strength used for z1 and z2 temporal penalties
-
         kappa: float,
             regularization strength used for z3 and z4 gamma temporal penalties
-
         tol: float,
             Convergence tolerance.
         l: int
             If X_type = rolling-window. l is the rolling window jumpt size
         X_type: str
             disjoint or rolling-window.
-        
-        
         """
         RootDygl.__init__(self, 1, max_iter, lamda, 0, 0 , tol, None, 'disjoint' ) 
-
 
 
     def get_A(self):
         return self.z0[0] - self.u0[0]
     
 
-
     def u_update(self):
         self.u0 = self.u0 + self.theta - self.z0
 
 
-
-
-
-    def fit(self, X,theta_init = None, lik_type= "gaussian", verbose = True,  **kwargs):
+    def fit(self, X, theta_init = None, lik_type= "gaussian", verbose = True,  **kwargs):
 
         self.n = X.shape[0]
         self.nr_graphs = 1
@@ -77,9 +60,7 @@ class sgl(RootDygl):
         if  np.isin(lik_type, ('skew-group-t', 'group-t')) and  kwargs.get("groups", None) is None:
             raise ValueError("groups has to be given for skew-group-t and group-t")
 
-
-
-        if (kwargs.get("nu", None) is None):
+        if kwargs.get("nu", None) is None:
             self.nu = self.calc_nu(X,lik_type, kwargs.get("groups", None))
 
         if verbose:
@@ -88,12 +69,8 @@ class sgl(RootDygl):
         # find obs_per_graph
         self.obs_per_graph_used = [float(X.shape[0])]
         self.rho = float(X.shape[0])
-
-    
-
         self.F_error = []
         self.iteration = 0
-
         d = X.shape[1]
 
         self.u0 = np.zeros((self.nr_graphs, d, d))
