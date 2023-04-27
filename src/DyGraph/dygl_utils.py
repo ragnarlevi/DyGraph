@@ -745,7 +745,7 @@ def ridge_penalty(A, eta):
 
 def block_wise_reconstruction(A,  eta , xtol=1e-5):
     """
-    Block-wise reconstruction: l_\infty norm
+    Block-wise reconstruction: l_infty norm
 
     Parameters
     ------------------
@@ -778,9 +778,8 @@ def block_wise_reconstruction(A,  eta , xtol=1e-5):
 
 def perturbed_node(theta_i, theta_i_1, U_i, U_i_1, kappa, rho, tol = 1e-8, max_iter = 1000):
     """
-    Block-wise reconstruction: l_\infty norm
-
     Parameters
+    perturbed_node. ADMM solver
     ------------------
     A: np.array,
     
@@ -826,8 +825,5 @@ def perturbed_node(theta_i, theta_i_1, U_i, U_i_1, kappa, rho, tol = 1e-8, max_i
 
         count_it += 1
 
-
-    if count_it == max_iter:
-        print(f"ADMM for perturbed node reached maximum iterations. Last difference was {fro_norm}")
 
     return Y1, Y2
