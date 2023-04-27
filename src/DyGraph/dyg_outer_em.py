@@ -185,7 +185,7 @@ class dygl_outer_em(RootDygl):
             # Perform E-step
             if self.lik_type == 't':
                 for g_i in range(self.nr_graphs):
-                    self.lik_type.S[g_i] = t_em(self.return_X(g_i), self.nu[g_i], self.theta[g_i].copy())
+                    self.S[g_i] = t_em(self.return_X(g_i), self.nu[g_i], self.theta[g_i].copy())
             elif self.lik_type == 'group-t':
                 for g_i in range(self.nr_graphs):
                     self.S[g_i] = group_em(self.return_X(g_i), self.nu[g_i], self.theta[g_i].copy(), self.groups, kwargs.get("nr_quad", 5), pool)
