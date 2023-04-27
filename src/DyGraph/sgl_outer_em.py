@@ -19,97 +19,74 @@ def update_gamma_static(G1, G2, theta):
 class sgl_outer_em(RootDygl):
 
 
-    def __init__(self, max_iter, lamda, tol = 1e-6) -> None:
+    def __init__(self, X,  max_iter, lamda, lik_type = 'gaussian', tol = 1e-6, groups = None) -> None:
 
         """
         Parameters
         ------------------
-        obs_per_graph: int,
-            Observations used to construct each each matrix, can be 1 or larger
-
-
+        X: array of size n, d
+            data with n observations and d features.
         max_iter: int,
             Maximum number of iterations
         
         lambda: float,
             regularization strength used for z0 l1 off diagonal 
-
-        kappa: float,
-            regularization strength used for z1 and z2 temporal penalties
-
-        kappa: float,
-            regularization strength used for z3 and z4 gamma temporal penalties
+        
+        lik_type: str,
+            Likelihood
 
         tol: float,
             Convergence tolerance.
-        l: int
-            If X_type = rolling-window. l is the rolling window jumpt size
-        X_type: str
-            disjoint or rolling-window.
+        groups: numpy array of size d
+            Grouping for EM
         
         
         """
-        RootDygl.__init__(self, 1, max_iter, lamda, 0, 0 , tol, None, 'disjoint' ) 
-
-
+        
+        RootDygl.__init__(self, X, X.shape[0], max_iter, lamda, 0, 0, lik_type , tol, None, 'disjoint', groups) 
 
     def get_A(self):
         return self.z0[0] - self.u0[0]
     
 
-
     def u_update(self):
         self.u0 = self.u0 + self.theta - self.z0
 
 
-    def fit(self, X, nr_workers = 1,theta_init = None, lik_type= "gaussian", verbose = True, max_admm_iter = 1, **kwargs):
+    def fit(self, nr_workers = 1,theta_init = None, verbose = True, nr_admm_iter = 1, **kwargs):
 
-        self.n = X.shape[0]
         self.nr_graphs = 1
         self.obs_per_graph = self.n
-        self.calc_S(X, kwargs.get("S_method", "empirical"))
-        self.nu = kwargs.get("nu", None)
-        self.groups = kwargs.get("groups", None)
-        self.max_admm_iter = max_admm_iter
+        self.calc_S(kwargs.get("S_method", "empirical"))
+        self.nr_admm_iter = nr_admm_iter
 
-        if type(self.lamda) is float:
-            self.lamda = self.lamda*np.ones((X.shape[1], X.shape[1]))
-            np.fill_diagonal(self.lamda,0)
-
-
-        if  np.isin(lik_type, ('skew-group-t', 'group-t')) and  kwargs.get("groups", None) is None:
-            raise ValueError("groups has to be given for skew-group-t and group-t")
-
-
-
-        if (kwargs.get("nu", None) is None):
-            self.nu = self.calc_nu(X,lik_type, kwargs.get("groups", None))
+        if kwargs.get("nu", None) is None:
+            self.nu = self.calc_nu(self.lik_type)
+        else:
+            self.nu = kwargs.get("nu")
 
         if verbose:
             pbar1 = tqdm.tqdm(total = self.max_iter)
 
         # find obs_per_graph
-        self.obs_per_graph_used = [float(X.shape[0])]
-        self.rho = float(X.shape[0])
-
-    
-
+        self.obs_per_graph_used = [float(self.n)]
+  
         self.F_error = []
         self.iteration = 0
 
-        d = X.shape[1]
 
-        self.u0 = np.zeros((self.nr_graphs, d, d))
+
+        self.u0 = np.zeros((self.nr_graphs, self.d, self.d))
 
 
         if theta_init is None:
-            self.theta = np.array([np.identity(X.shape[1]) for _ in range(self.nr_graphs) ])
-            self.z0 = np.ones((self.nr_graphs, d, d))
+            self.theta = np.array([np.identity(self.d) for _ in range(self.nr_graphs) ])
+            self.z0 = np.ones((self.nr_graphs, self.d, self.d))
         else:
             self.theta = theta_init.copy()
             self.z0 = theta_init.copy()
 
-        self.gamma = np.array([np.zeros(X.shape[1]) for _ in range(self.nr_graphs) ])
+        self.gamma = np.array([np.zeros(self.d) for _ in range(self.nr_graphs) ])
         
         thetas_pre = self.theta.copy()
 
@@ -126,20 +103,20 @@ class sgl_outer_em(RootDygl):
 
             # Perform E-step
 
-            if lik_type == 't':
-                self.S[0] = t_em(X, self.nu[0], self.theta[0].copy())
-            elif lik_type == 'group-t':
-                self.S[0] = group_em(X, self.nu[0], self.theta[0].copy(), self.groups, kwargs.get("nr_quad", 5), pool)
-            elif lik_type == 'skew-group-t':
-                self.S[0], G1, G2 = skew_group_em(X, self.nu[0], self.theta[0].copy(), self.gamma[0], self.groups, kwargs.get("nr_quad", 5), pool)
+            if self.lik_type == 't':
+                self.S[0] = t_em(self.X, self.nu[0], self.theta[0].copy())
+            elif self.lik_type == 'group-t':
+                self.S[0] = group_em(self.X, self.nu[0], self.theta[0].copy(), self.groups, kwargs.get("nr_quad", 5), pool)
+            elif self.lik_type == 'skew-group-t':
+                self.S[0], G1, G2 = skew_group_em(self.X, self.nu[0], self.theta[0].copy(), self.gamma[0], self.groups, kwargs.get("nr_quad", 5), pool)
 
             # if verbose:
             #     pbar2 = tqdm.tqdm(total = self.max_admm_iter, position = 2)
             admm_itr = 0
-            while admm_itr < self.max_admm_iter:
+            while admm_itr < self.nr_admm_iter:
                 eta = self.obs_per_graph_used[0]/self.rho/2.0
                 self.theta[0],_ = Gaussian_update_outer_em(0, self.S[0], self.get_A(),  eta  )
-                if lik_type == 'skew-group-t':
+                if self.lik_type == 'skew-group-t':
                     self.gamma[0] = update_gamma_static(G1, G2, self.theta[0] )
 
 
@@ -160,6 +137,8 @@ class sgl_outer_em(RootDygl):
             for i in range(self.nr_graphs):
                 dif = self.theta[i] - thetas_pre[i]
                 self.fro_norm += np.linalg.norm(dif)/np.linalg.norm(thetas_pre[i])
+
+            self.F_error.append(self.fro_norm)
 
             if verbose:   
                 pbar1.set_description(f"Error {Decimal(self.fro_norm):.2E}")

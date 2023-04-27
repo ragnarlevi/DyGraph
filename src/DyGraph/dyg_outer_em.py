@@ -22,15 +22,15 @@ def update_gamma(i, G1, G2, theta, rho_gamma, A_gamma):
 class dygl_outer_em(RootDygl):
 
 
-    def __init__(self, obs_per_graph, max_iter, lamda, kappa, kappa_gamma = 0, tol = 1e-6, l = None, X_type = 'disjoint') -> None:
+    def __init__(self, X, obs_per_graph, max_iter, lamda, kappa, kappa_gamma = 0, lik_type = 'gaussian', tol = 1e-6, l = None, X_type = 'disjoint', groups = None) -> None:
 
         """
         Parameters
         ------------------
+        X: array of size n, d
+            data with n observations and d features.
         obs_per_graph: int,
             Observations used to construct each each matrix, can be 1 or larger
-
-
         max_iter: int,
             Maximum number of iterations
         
@@ -38,10 +38,13 @@ class dygl_outer_em(RootDygl):
             regularization strength used for z0 l1 off diagonal 
 
         kappa: float,
-            regularization strength used for z1 and z2 temporal penalties
+            regularization strength used for z1 and z2 gamma temporal penalties
 
-        kappa: float,
+        kappa_gamma: float,
             regularization strength used for z3 and z4 gamma temporal penalties
+        
+        lik_type: str,
+            Likelihood
 
         tol: float,
             Convergence tolerance.
@@ -49,10 +52,13 @@ class dygl_outer_em(RootDygl):
             If X_type = rolling-window. l is the rolling window jumpt size
         X_type: str
             disjoint or rolling-window.
+        groups: numpy array of size d
+            Grouping for EM
         
         
         """
-        RootDygl.__init__(self, obs_per_graph, max_iter, lamda, kappa, kappa_gamma , tol, l, X_type ) 
+        
+        RootDygl.__init__(self, X, obs_per_graph, max_iter, lamda, kappa, kappa_gamma, lik_type , tol, l, X_type, groups) 
 
 
 
@@ -105,27 +111,16 @@ class dygl_outer_em(RootDygl):
         return eta
 
 
-    def fit(self, X,temporal_penalty,theta_init = None, lik_type= "gaussian",  nr_workers = 1, verbose = True, max_admm_iter = 1, **kwargs):
+    def fit(self, temporal_penalty,theta_init = None,  nr_workers = 1, verbose = True, max_admm_iter = 1, **kwargs):
 
-        self.n = X.shape[0]
         self.get_nr_graphs()
-        self.calc_S(X, kwargs.get("S_method", "empirical"))
-        self.nu = kwargs.get("nu", None)
-        self.groups = kwargs.get("groups", None)
+        self.calc_S(kwargs.get("S_method", "empirical"))
         self.max_admm_iter = max_admm_iter
 
-        if type(self.lamda) is float:
-            self.lamda = self.lamda*np.ones((X.shape[1], X.shape[1]))
-            np.fill_diagonal(self.lamda,0)
-
-
-        if  np.isin(lik_type, ('skew-group-t', 'group-t')) and  kwargs.get("groups", None) is None:
-            raise ValueError("groups has to be given for skew-group-t and group-t")
-
-
-
-        if (kwargs.get("nu", None) is None):
-            self.nu = self.calc_nu(X,lik_type, kwargs.get("groups", None))
+        if kwargs.get("nu", None) is None:
+            self.nu = self.calc_nu(self.lik_type)
+        else:
+            self.nu = kwargs.get("nu")
 
         if verbose:
             pbar1 = tqdm.tqdm(total = self.max_iter)
@@ -133,7 +128,7 @@ class dygl_outer_em(RootDygl):
         # find obs_per_graph
         self.obs_per_graph_used = []
         for i in range(0, self.nr_graphs):
-            x_tmp = self.return_X(i, X)
+            x_tmp = self.return_X(i)
             self.obs_per_graph_used.append(x_tmp.shape[0])
 
     
@@ -142,32 +137,32 @@ class dygl_outer_em(RootDygl):
         self.iteration = 0
         assert self.nr_graphs >1, "X.shape[0]/obs_per_graph has to be above 1"
        
-        d = X.shape[1]
-        self.u0 = np.zeros((self.nr_graphs, d, d))
-        self.u1 = np.zeros((self.nr_graphs, d,d))
-        self.u2 = np.zeros((self.nr_graphs, d, d))
-        self.u3 = np.zeros((self.nr_graphs, d))
-        self.u4 = np.zeros((self.nr_graphs, d))
+    
+        self.u0 = np.zeros((self.nr_graphs, self.d, self.d))
+        self.u1 = np.zeros((self.nr_graphs, self.d, self.d))
+        self.u2 = np.zeros((self.nr_graphs, self.d, self.d))
+        self.u3 = np.zeros((self.nr_graphs, self.d))
+        self.u4 = np.zeros((self.nr_graphs, self.d))
 
-        self.z3 = np.zeros((self.nr_graphs, d))
-        self.z4 = np.zeros((self.nr_graphs, d))
+        self.z3 = np.zeros((self.nr_graphs, self.d))
+        self.z4 = np.zeros((self.nr_graphs, self.d))
 
         if theta_init is None:
-            self.theta = np.array([np.identity(X.shape[1]) for _ in range(self.nr_graphs) ])
-            self.z0 = np.ones((self.nr_graphs, d, d))
-            self.z1 = np.zeros((self.nr_graphs, d,d))
-            self.z2 = np.zeros((self.nr_graphs, d, d))
+            self.theta = np.array([np.identity(self.d) for _ in range(self.nr_graphs) ])
+            self.z0 = np.ones((self.nr_graphs, self.d, self.d))
+            self.z1 = np.zeros((self.nr_graphs, self.d,self.d))
+            self.z2 = np.zeros((self.nr_graphs, self.d, self.d))
         else:
             self.theta = theta_init.copy()
             self.z0 = theta_init.copy()
             self.z1 = theta_init.copy()
-            self.z1[-1] = np.zeros((d,d))
+            self.z1[-1] = np.zeros((self.d, self.d))
             self.z2 = theta_init.copy()
-            self.z2[0] = np.zeros((d,d))
+            self.z2[0] = np.zeros((self.d, self.d))
 
 
 
-        self.gamma = np.array([np.zeros(X.shape[1]) for _ in range(self.nr_graphs) ])
+        self.gamma = np.array([np.zeros(self.d) for _ in range(self.nr_graphs) ])
         thetas_pre = self.theta.copy()
 
         if nr_workers >1:
@@ -188,17 +183,17 @@ class dygl_outer_em(RootDygl):
         while self.iteration < self.max_iter:
 
             # Perform E-step
-            if lik_type == 't':
+            if self.lik_type == 't':
                 for g_i in range(self.nr_graphs):
-                    self.S[g_i] = t_em(self.return_X(g_i, X), self.nu[g_i], self.theta[g_i].copy())
-            elif lik_type == 'group-t':
+                    self.lik_type.S[g_i] = t_em(self.return_X(g_i), self.nu[g_i], self.theta[g_i].copy())
+            elif self.lik_type == 'group-t':
                 for g_i in range(self.nr_graphs):
-                    self.S[g_i] = group_em(self.return_X(g_i, X), self.nu[g_i], self.theta[g_i].copy(), self.groups, kwargs.get("nr_quad", 5), pool)
-            elif lik_type == 'skew-group-t':
+                    self.S[g_i] = group_em(self.return_X(g_i), self.nu[g_i], self.theta[g_i].copy(), self.groups, kwargs.get("nr_quad", 5), pool)
+            elif self.lik_type == 'skew-group-t':
                 G1 = [None] * self.nr_graphs
                 G2 = [None] * self.nr_graphs
                 for g_i in range(self.nr_graphs):
-                    self.S[g_i], G1[g_i], G2[g_i] = skew_group_em(self.return_X(g_i, X), self.nu[g_i], self.theta[g_i].copy(), self.gamma[g_i], self.groups, kwargs.get("nr_quad", 5), pool)
+                    self.S[g_i], G1[g_i], G2[g_i] = skew_group_em(self.return_X(g_i), self.nu[g_i], self.theta[g_i].copy(), self.gamma[g_i], self.groups, kwargs.get("nr_quad", 5), pool)
 
             admm_itr = 0
             # if verbose:
@@ -216,7 +211,7 @@ class dygl_outer_em(RootDygl):
                         self.theta[i],_ = Gaussian_update_outer_em(i, self.S[i], self.get_A(i),  self.correct_eta(i)  )
 
                 # if skew update gamma
-                if lik_type == 'skew-group-t':
+                if self.lik_type == 'skew-group-t':
                     if nr_workers >1:
                         # i, G1, G2, theta, rho_gamma, A_gamma
                         results = pool.starmap(update_gamma,((i, G1[i], G2[i], self.theta[i], self.rho_gamma, self.get_A_gamma(i) ) for i in range(self.nr_graphs)))
@@ -255,7 +250,7 @@ class dygl_outer_em(RootDygl):
                     else:
                         raise ValueError(f"{temporal_penalty} not a defined penalty function")
                     
-                    if lik_type == 'skew-group-t':
+                    if self.lik_type == 'skew-group-t':
                         A_gamma = self.gamma[i]-self.gamma[i-1]+self.u4[i]-self.u3[i-1]
                         E = soft_threshold_odd(A_gamma, 2*self.kappa_gamma[i-1]/self.rho_gamma)
                         summ = 0.5*(self.gamma[i]+self.gamma[i-1]+self.u3[i-1]+self.u4[i])
@@ -274,7 +269,7 @@ class dygl_outer_em(RootDygl):
             for i in range(self.nr_graphs):
                 dif = self.theta[i] - thetas_pre[i]
                 self.fro_norm += np.linalg.norm(dif)/np.linalg.norm(thetas_pre[i])
-
+            self.F_error.append(self.fro_norm)
             if verbose:   
                 pbar1.set_description(f"Error {Decimal(self.fro_norm):.2E}")
                 pbar1.update()

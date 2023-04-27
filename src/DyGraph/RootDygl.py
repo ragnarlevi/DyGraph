@@ -3,7 +3,6 @@
 # Root class for data preperation
 
 import numpy as np
-import inspect
 import warnings
 from scipy.stats import kurtosis
 
@@ -11,11 +10,13 @@ from scipy.stats import kurtosis
 
 class RootDygl():
 
-    def __init__(self, obs_per_graph, max_iter, lamda, kappa, kappa_gamma = 0, tol = 1e-6, l = None, X_type = 'disjoint') -> None:
+    def __init__(self, X, obs_per_graph, max_iter, lamda, kappa, kappa_gamma = 0, lik_type = 'gaussian', tol = 1e-6, l = None, X_type = 'disjoint', groups = None) -> None:
 
         """
         Parameters
         ------------------
+        X: array of size n, d
+            data with n observations and d features.
         obs_per_graph: int,
             Observations used to construct each each matrix, can be 1 or larger
 
@@ -38,23 +39,46 @@ class RootDygl():
             If X_type = rolling-window. l is the rolling window jumpt size
         X_type: str
             disjoint or rolling-window.
+        groups: numpy array of size d
+            Grouping for EM
         
         
         """
 
         assert obs_per_graph >= 0, "block size has to be bigger than 0"
 
-        args, _, _, values = inspect.getargvalues(inspect.currentframe())
-        values.pop("self")
-        for arg, val in values.items():
-            setattr(self, arg, val)
+        self.X = np.array(X)
+        self.d = X.shape[1]
+        self.n = self.X.shape[0]
+        self.max_iter = max_iter
+        self.lamda = lamda*obs_per_graph
+        self.kappa = kappa*obs_per_graph
+        self.kappa_gamma = kappa_gamma*obs_per_graph
+        self.tol = tol
+        self.l = l
+        self.X_type = X_type
+        self.lik_type = lik_type
+
+
+        if np.isin(lik_type, ('skew-group-t', 'group-t')):
+            if groups is None:
+                raise ValueError("groups has to be given for skew-group-t and group-t")
+            elif len(groups) != self.d:
+                raise ValueError("groups length has to be same as number of features")
+            else:
+                self.groups = np.array(groups)
+        else:
+            self.groups = None
 
         self.obs_per_graph = int(obs_per_graph)
         self.w = self.obs_per_graph
-        self.l = l
+
         self.rho = float(obs_per_graph+1)
         self.rho_gamma = float(obs_per_graph+1)
-        self.X_type = X_type
+
+        if type(self.lamda) is float:
+            self.lamda = self.lamda*np.ones((self.d, self.d))
+            np.fill_diagonal(self.lamda,0)
 
         if X_type == 'rolling-window' and l is None:
             raise ValueError(f"If X_type is {X_type} l has to be an integer")
@@ -109,13 +133,13 @@ class RootDygl():
         
         return lwr, upr
     
-    def return_X(self, i, X):
+    def return_X(self, i):
         lwr, upr = self.get_X_index(i, self.obs_per_graph, self.l, self.X_type)
-        return X[lwr:upr]
+        return self.X[lwr:upr]
         
 
 
-    def calc_S(self, X, method):
+    def calc_S(self, method):
         """
         Calculation of the empirical covariance matrix
 
@@ -127,13 +151,11 @@ class RootDygl():
             data matrix
 
         """
-        X = np.array(X)
         self.S = []
 
         if method == "empirical":
             for i in range(self.nr_graphs):
-                lwr, upr = self.get_X_index(i,self.obs_per_graph,self.l, self.X_type)
-                x_tmp = X[lwr:upr]
+                x_tmp = self.return_X(i)
                 if x_tmp.shape[0] == 1:
                     self.S.append(np.outer(x_tmp,x_tmp))
                 else:
@@ -141,19 +163,18 @@ class RootDygl():
         else:
             raise ValueError(f"No method for S called {method}")
         
-    def calc_nu(self,X, liktype, groups = None):
+    def calc_nu(self,liktype):
 
         if liktype != 'gaussian':
 
             if liktype == 't':
                 nu = np.zeros(self.nr_graphs)
             else:
-                nu = np.zeros((self.nr_graphs, len(groups)))
+                nu = np.zeros((self.nr_graphs, self.d))
 
 
             for i in range(self.nr_graphs):
-                lwr, upr = self.get_X_index(i,self.obs_per_graph,self.l, self.X_type)
-                x_tmp = X[lwr:upr]
+                x_tmp = self.return_X(i)
 
                 nu_tmp = {}
                 if liktype == 't':
@@ -161,11 +182,11 @@ class RootDygl():
                     nu[i] = 6.0 / kurt + 4.0
                     nu[i] = np.min((np.max((nu[i],3)), 100))
                 else:
-                    for j in np.unique(groups):
-                        kurt = np.mean(kurtosis(x_tmp[:, groups == j], bias=False))
+                    for j in np.unique(self.groups):
+                        kurt = np.mean(kurtosis(x_tmp[:, self.groups == j], bias=False))
                         nu_tmp[j] = 6.0 / kurt + 4.0
                         nu_tmp[j] = np.min((np.max((nu_tmp[j],4)), 100))
-                    nu[i] = np.array([nu_tmp[j] for j in groups])
+                    nu[i] = np.array([nu_tmp[j] for j in self.groups])
         else:
             nu = np.ones(self.nr_graphs)
 
