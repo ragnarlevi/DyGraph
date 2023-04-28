@@ -76,8 +76,6 @@ class RootDygl():
 
         if self.obs_per_graph <1:
             raise ValueError(f"obs_per_graph has to be 1 or larger")
-        if (l is not None) and l <1:
-            raise ValueError(f"l has to be 1 or larger.")
         
 
     def get_nr_graphs(self):
@@ -92,7 +90,7 @@ class RootDygl():
         
 
 
-    def get_X_index(self, i, w, l = None, type = "disjoint"):
+    def get_X_index(self, i):
         """
         Function to get  window index of X
 
@@ -109,14 +107,14 @@ class RootDygl():
 
         """
 
-        lwr = w*i
-        upr = w*(i+1)
+        lwr = self.obs_per_graph*i
+        upr = self.obs_per_graph*(i+1)
 
         
         return lwr, upr
     
     def return_X(self, i):
-        lwr, upr = self.get_X_index(i, self.obs_per_graph, self.l, self.X_type)
+        lwr, upr = self.get_X_index(i)
         return self.X[lwr:upr]
         
 
