@@ -10,7 +10,7 @@ from scipy.stats import kurtosis
 
 class RootDygl():
 
-    def __init__(self, X, obs_per_graph, max_iter, lamda, kappa, kappa_gamma = 0, lik_type = 'gaussian', tol = 1e-6, l = None, X_type = 'disjoint', groups = None) -> None:
+    def __init__(self, X, obs_per_graph, max_iter, lamda, kappa, kappa_gamma = 0, lik_type = 'gaussian', tol = 1e-6, groups = None) -> None:
 
         """
         Parameters
@@ -35,10 +35,6 @@ class RootDygl():
 
         tol: float,
             Convergence tolerance.
-        l: int
-            If X_type = rolling-window. l is the rolling window jumpt size
-        X_type: str
-            disjoint or rolling-window.
         groups: numpy array of size d
             Grouping for EM
         
@@ -55,8 +51,6 @@ class RootDygl():
         self.kappa = kappa*obs_per_graph
         self.kappa_gamma = kappa_gamma*obs_per_graph
         self.tol = tol
-        self.l = l
-        self.X_type = X_type
         self.lik_type = lik_type
 
 
@@ -80,8 +74,6 @@ class RootDygl():
             self.lamda = self.lamda*np.ones((self.d, self.d))
             np.fill_diagonal(self.lamda,0)
 
-        if X_type == 'rolling-window' and l is None:
-            raise ValueError(f"If X_type is {X_type} l has to be an integer")
         if self.obs_per_graph <1:
             raise ValueError(f"obs_per_graph has to be 1 or larger")
         if (l is not None) and l <1:
@@ -92,16 +84,11 @@ class RootDygl():
         """
         Calculate number of graphs
         """
-        if self.X_type == 'disjoint':
-            if self.n % self.obs_per_graph:
-                warnings.warn("Observations per graph estimation not divisiable by total number of observations")
-            self.nr_graphs = int(np.ceil(self.n/self.obs_per_graph))
-        elif self.X_type == 'rolling-window':
-            if (self.n-self.obs_per_graph) % self.l:
-                warnings.warn("Rolling window does not produce graphs with equal number of observations.")
-            self.nr_graphs = int(np.ceil((self.n-self.obs_per_graph)/self.l +1))
-        else:
-            raise ValueError(f"X_type {self.X_type} not available. Use disjoint or rolling-window")
+
+        if self.n % self.obs_per_graph:
+            warnings.warn("Observations per graph estimation not divisiable by total number of observations")
+        self.nr_graphs = int(np.ceil(self.n/self.obs_per_graph))
+
         
 
 
@@ -121,15 +108,10 @@ class RootDygl():
             disjoint or rolling-window
 
         """
-        if type == 'disjoint':
-            lwr = w*i
-            upr = w*(i+1)
-        elif type == 'rolling-window':
-            assert l is not None, f"parameter l can not be None"
-            lwr = l*i
-            upr = w+l*i
-        else:
-            raise ValueError(f"type {type} not available. Use disjoint or rolling-window")
+
+        lwr = w*i
+        upr = w*(i+1)
+
         
         return lwr, upr
     

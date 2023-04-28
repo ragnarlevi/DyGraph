@@ -22,7 +22,7 @@ def update_gamma(i, G1, G2, theta, rho_gamma, A_gamma):
 class dygl_outer_em(RootDygl):
 
 
-    def __init__(self, X, obs_per_graph, max_iter, lamda, kappa, kappa_gamma = 0, lik_type = 'gaussian', tol = 1e-6, l = None, X_type = 'disjoint', groups = None) -> None:
+    def __init__(self, X, obs_per_graph, max_iter, lamda, kappa, kappa_gamma = 0, lik_type = 'gaussian', tol = 1e-6,  groups = None) -> None:
 
         """
         Parameters
@@ -48,17 +48,13 @@ class dygl_outer_em(RootDygl):
 
         tol: float,
             Convergence tolerance.
-        l: int
-            If X_type = rolling-window. l is the rolling window jumpt size
-        X_type: str
-            disjoint or rolling-window.
         groups: numpy array of size d
             Grouping for EM
         
         
         """
         
-        RootDygl.__init__(self, X, obs_per_graph, max_iter, lamda, kappa, kappa_gamma, lik_type , tol, l, X_type, groups) 
+        RootDygl.__init__(self, X, obs_per_graph, max_iter, lamda, kappa, kappa_gamma, lik_type , tol, groups) 
 
 
 

@@ -35,7 +35,7 @@ class sgl_inner_em(RootDygl):
         
         """
         
-        RootDygl.__init__(self, X, X.shape[0], max_iter, lamda, 0, 0, lik_type , tol, None, 'disjoint', groups) 
+        RootDygl.__init__(self, X, X.shape[0], max_iter, lamda, 0, 0, lik_type , tol, groups) 
 
 
     def get_A(self):
