@@ -107,7 +107,7 @@ class dygl_outer_em(RootDygl):
         return eta
 
 
-    def fit(self, temporal_penalty,theta_init = None,  nr_workers = 1, verbose = True, max_admm_iter = 1, **kwargs):
+    def fit(self, temporal_penalty, theta_init = None,  nr_workers = 1, verbose = True, max_admm_iter = 1, **kwargs):
 
         self.get_nr_graphs()
         self.calc_S(kwargs.get("S_method", "empirical"))

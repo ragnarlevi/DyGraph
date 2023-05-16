@@ -14,13 +14,16 @@ A package for dynamic graph estimation.
 ```python
 from sklearn.datasets import make_sparse_spd_matrix
 import DyGraph as dg
+import numpy as np
+from scipy.stats import multivariate_t as mvt
+
 ```
 Generate some data.
 
 ```python
 
-from sklearn.datasets import make_sparse_spd_matrix
-d = 5
+
+d = 5  # number of nodes
 A = make_sparse_spd_matrix(d, alpha=0.6)
 X = mvt.rvs(loc = np.zeros(d),df = 4, shape = np.linalg.inv(A), size=200)
 
@@ -36,17 +39,26 @@ tol = 1e-4
 Gaussian
 
 ```python
-dg_opt = dg.dygl_inner_em(X,  max_iter = 2, lamda = alpha,  kappa = kappa, tol = tol, lik_type='gaussian')
-dg_opt.fit(temporal_penalty = 'element-wise)
+dg_opt = dg.dygl_inner_em(X,  obs_per_graph = obs_per_graph, max_iter = 2, lamda = alpha,  kappa = kappa, tol = tol, lik_type='gaussian')
+dg_opt.fit(temporal_penalty = 'element-wise')
 
 ```
+
+access the graphs via:
+
+```python
+dg_opt.theta
+
+```
+
+
 
 t, inner and outer. Can give degrees of freedom, or estimate
 
 ```python
 # inner
 dg_opt_t_inner = dg.dygl_inner_em(X = X, obs_per_graph = obs_per_graph,  max_iter = max_iter, lamda = alpha, kappa = kappa, tol = tol, lik_type='t')
-dg_opt_t_inner.fit(temporal_penalty = 'element-wise)
+dg_opt_t_inner.fit(temporal_penalty = 'element-wise')
 # outer
 dg_opt_t_outer = dg.dygl_outer_em(X = X, obs_per_graph = obs_per_graph,  max_iter = max_iter, lamda = alpha,  kappa = kappa, tol = tol, lik_type='t')
 dg_opt_t_outer.fit(temporal_penalty = 'element-wise', nu = [4]*4)  # Note one nu/DoF for each graph.

@@ -329,8 +329,6 @@ def run(kappa_const, lik_type ,obs_per_graph, asset_type, temp):
             rs_m[alpha_cnt].append(r_m)
             sigmas_m[alpha_cnt].append(sigma_m)
 
-            
-
             # add stuff independent of portfolio
             time_forecast[alpha_cnt].append(price.index[i:i + l])
             # ebics[alpha_cnt].append(ebic(np.zeros(S.shape[0]),S, precision_matrix, log_returns_scaled, liktype=lik_type, nu = dg_opt.nu, beta = 0.5))
