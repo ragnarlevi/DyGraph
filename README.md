@@ -39,7 +39,7 @@ tol = 1e-4
 Gaussian
 
 ```python
-dg_opt = dg.dygl_inner_em(X,  obs_per_graph = obs_per_graph, max_iter = 2, lamda = alpha,  kappa = kappa, tol = tol, lik_type='gaussian')
+dg_opt = dg.dygl_inner_em(X,  obs_per_graph = obs_per_graph, max_iter = max_iter, lamda = alpha,  kappa = kappa, tol = tol, lik_type='gaussian')
 dg_opt.fit(temporal_penalty = 'element-wise')
 
 ```
