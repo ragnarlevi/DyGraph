@@ -239,7 +239,7 @@ def CE_remove_lik(X,N, tail_prob_init, tail_prob_final, theta_1, nr_its = 2):
 
 
 
-def CE_glasso(X,N, theta_reference, tail_prob, nr_its, alpha, nr_zeros_limit, alpha_in_CE, model, bootstrap_X):
+def CE_glasso(X,N, theta_reference, tail_prob, nr_its, alpha, nr_zeros_limit, alpha_in_CE, model, bootstrap_X, boot_refrence):
 
     S_refrence = np.linalg.inv(theta_reference)
 
@@ -269,6 +269,9 @@ def CE_glasso(X,N, theta_reference, tail_prob, nr_its, alpha, nr_zeros_limit, al
 
     pbar = tqdm.tqdm(total = nr_its*N)
     for it_nr in range(1,nr_its+1):
+
+
+
 
         value_vals = np.zeros(N)  # store log-likelihoods
         if model == 'Bernoulli':
@@ -387,9 +390,9 @@ if __name__ == '__main__':
     N = 3000
     As = gen_local_change(d,s)
     nr_params = int(d*(d-1)/2)
-    ratio_nr_zeros = None
+    ratio_nr_zeros = 0.9
     alpha_in_CE = True
-    model = 'Bernoulli'
+    model = 'Gaussian'
     bootstrap_X = False
     tail_prob = 0.95
     obs_per_graph = 200

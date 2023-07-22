@@ -172,6 +172,12 @@ class dygl_outer_em(RootDygl):
 
         if not hasattr(self.kappa, "__len__"):
             self.kappa = np.array([self.kappa for _ in range(self.nr_graphs)])
+        if not hasattr(self.lamda, "__len__"):
+            self.lamda = np.array([self.lamda for _ in range(self.nr_graphs)])  
+        elif  (len(self.lamda.shape) == 1) and (len(self.lamda) == self.nr_graphs):
+            self.lamda = self.lamda
+        elif (self.lamda.shape[0] == self.lamda.shape[1]) and len(self.lamda.shape) == 2:
+            self.lamda = np.array([self.lamda for _ in range(self.nr_graphs)])  
         if not hasattr(self.kappa_gamma, "__len__"):
             self.kappa_gamma = np.array([self.kappa_gamma for _ in range(self.nr_graphs)])
 
@@ -221,7 +227,7 @@ class dygl_outer_em(RootDygl):
                 # update dual in parallel
                 # update z0
                 for i in range(self.nr_graphs):
-                    self.z0[i] = soft_threshold_odd(self.theta[i]+self.u0[i], self.lamda/self.rho)
+                    self.z0[i] = soft_threshold_odd(self.theta[i]+self.u0[i], self.lamda[i]/self.rho)
 
 
                 # update z1, z2, z3, z4

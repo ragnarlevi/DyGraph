@@ -17,6 +17,58 @@ import scipy
 from scipy.optimize import minimize
 
 
+from sklearn import linear_model
+def cov_regression_lasso(X, Y, alpha, max_itr = 100, tol = 1e-5):
+    
+    d = Y.shape[1]
+    n = X.shape[0]
+    Y_tilde = np.vstack((Y, np.zeros((n,d))))
+
+    r = X.shape[1]
+    alpha = n*alpha
+    iteration = 0
+    max_itr = 100
+
+    Psi_pre = np.identity(d)
+    v = np.ones(n)
+    m = np.ones(n)
+    X_tilde =  np.vstack((m[:,np.newaxis]*X,v[:,np.newaxis]*X))
+    # The solution is evry sensitive to the inital matrix, the l2 regularization for B_pre effects alpha
+    B_pre = np.dot(Y_tilde.T, X_tilde).dot(np.linalg.inv(np.dot(X_tilde.T, X_tilde) + alpha*np.identity(r)))
+
+
+    B_tmp = B_pre.flatten()
+    B_vec = np.zeros(2*r*d)
+    B_vec[:r*d] = np.abs(B_tmp) * (B_tmp>0)
+    B_vec[r*d:] = np.abs(B_tmp) * (B_tmp<0)
+    # B_pre = np.zeros((r,d))
+    while iteration <max_itr:
+        Psi_pre_inv = np.linalg.inv(Psi_pre)
+        # print(np.linalg.cond(Psi_pre_inv))
+        # E-step
+        for i in range(n):
+            v[i] = (1+np.dot(X[i].T, B_pre.T).dot(Psi_pre_inv).dot(B_pre).dot(X[i])) ** (-1)
+            m[i] = v[i]*np.dot((Y[i]-0).T,Psi_pre_inv).dot(B_pre).dot(X[i])
+
+        X_tilde =  np.vstack((m[:,np.newaxis]*X,v[:,np.newaxis]*X))
+        reg_lasso = linear_model.Lasso(alpha = alpha).fit(X_tilde,Y_tilde)
+        B = reg_lasso.coef_.copy()
+
+        Psi = np.cov((Y-np.dot(X,B.T)).T)*(n-1)/n + 0.001*np.identity(d)
+        
+
+        if np.linalg.norm(B-B_pre)<tol:
+            break
+
+        Psi_pre = Psi.copy()
+        B_pre = B.copy()
+
+        iteration+=1
+
+    return B, Psi
+
+
+
 
 
 def cov_regression(X, Y, alpha, max_itr = 100, tol = 1e-5):
@@ -63,7 +115,7 @@ def cov_regression(X, Y, alpha, max_itr = 100, tol = 1e-5):
 
         X_tilde =  np.vstack((m[:,np.newaxis]*X,v[:,np.newaxis]*X))
         # M-step
-        out = minimize(fun, B_vec, args = (X_tilde, Y_tilde, Psi_pre_inv,d,r, alpha), method='L-BFGS-B', jac=True, bounds = [(0.0,None)]*(2*r*d))
+        out = minimize(fun, B_vec, args = (X_tilde, Y_tilde, np.identity(d),d,r, alpha), method='L-BFGS-B', jac=True, bounds = [(0.0,None)]*(2*r*d))
         B_vec = out.x
         B = np.reshape(out.x[:r*d] - out.x[r*d:], (d,r))
         #inv_m = np.linalg.inv(np.dot(X_tilde.T, X_tilde))
@@ -301,18 +353,25 @@ if __name__ == '__main__':
 
 
     
-    ns = [50, 100, 500, 1000, 3000]
-    rs = [5, 10, 30, 50, 100, 200]
-    ds = [5, 10, 30, 50, 100, 200]
-    alphas = np.exp(-np.linspace(8,3,30))
+    ns = [50, 100, 500, 1000, 10000]
+    rs = [5, 10, 50]
+    ds = [5, 10, 50]
+    alphas = np.exp(-np.linspace(15,2,60))
 
     B_dict = dict()
     B_dict_true = dict()
     Psi_dict = dict()
-    Xs_dict = {str(r) + '_'+str(d): [] for r in rs for d in ds}
+    Xs_dict = {str(r): [] for r in rs}
+    Ys_dict = {str(r)+ '_' + str(d): [] for r in rs for d in ds}
     val_y_true = dict()
     value_function_dict = dict()
     pbar = tqdm.tqdm(total = len(alphas)*len(ns)*len(ds)*len(rs))
+
+    for r in rs:
+        for n_cnt, n in enumerate(ns):
+            Xs_dict[str(r)].append(np.random.normal(loc = 0, scale = 1, size = (n,r)))
+
+
     for r in rs:
         for d in ds:
 
@@ -331,13 +390,14 @@ if __name__ == '__main__':
 
 
             for n_cnt, n in enumerate(ns):
-                X = np.random.normal(loc = 0, scale = 1, size = (n,r))
+                X = Xs_dict[str(r)][n_cnt].copy()
                 gamma = np.random.normal(loc = 0, scale = 1, size = (n))
                 epsilon = np.random.normal(loc = 0, scale = 1, size = (n,d))
                 Y = gamma[:, np.newaxis]*np.dot(X, B_true.T) + epsilon
-                Xs_dict[str(r) + '_'+str(d)].append(X.copy())
+                Ys_dict[str(r) + '_'+str(d)].append(Y.copy())
                 for alpha_cnt, alpha in enumerate(alphas):
                     B, Psi = cov_regression(X,Y, alpha, 100 )
+                    #B, Psi = cov_regression_lasso(X,Y,alpha,100)
                     Bs[n_cnt, alpha_cnt] = B.copy()
                     Psis[n_cnt, alpha_cnt] = Psi.copy()
                     
@@ -345,16 +405,15 @@ if __name__ == '__main__':
                     for i in range(d):
                         for j in range(i,d):
                             value_function_dict[str(r) + '_'+str(d)][i,j,n_cnt, alpha_cnt] = shapleys[str(i)+','+ str(j)]
-                            value_function_dict[str(r) + '_'+str(d)][j,i,n_cnt, alpha_cnt] = shapleys[str(i)+','+ str(j)]
 
                     B_dict[str(r) + '_'+str(d)] = Bs
-                    Psi_dict[str(r) + '_'+str(d)] = Bs
+                    Psi_dict[str(r) + '_'+str(d)] = Psis
                     pbar.update()
 
-            out_dict = {'alphas':alphas, 'ns':ns, 'rs':rs, 'ds':ds, 'value_function_dict':value_function_dict, 'r': r, 'd':d, 
-                        'B_true':B_true, 'B_dict':B_dict, 'B_dict_true':B_dict_true, 'Psi_dict':Psi_dict,'val_y_true':val_y_true}
+            out_dict = {'alphas':alphas, 'ns':ns, 'rs':rs, 'ds':ds, 'value_function_dict':value_function_dict, 'Xs_dict':Xs_dict, 'Ys_dict':Ys_dict,
+                        'B_dict':B_dict, 'B_dict_true':B_dict_true, 'Psi_dict':Psi_dict,'val_y_true':val_y_true}
             import pickle
-            with open(f'data/Shapley/shapley3.pkl', 'wb') as handle:
+            with open(f'data/Shapley/shapley7_nopsi.pkl', 'wb') as handle:
                 pickle.dump(out_dict, handle, protocol=pickle.HIGHEST_PROTOCOL)
 
 
