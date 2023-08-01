@@ -258,14 +258,10 @@ def CE_glasso(X, w, N, tail_prob, nr_its, alpha, kappa, alpha_in_CE, metric, use
     nr_params = int(d*(d-1)/2)
 
     pbar = tqdm.tqdm(total = nr_its*N)
+    value_vals = np.zeros((H,nr_its,N))
     for it_nr in range(1,nr_its+1):
 
-        value_vals = np.zeros((H,nr_its,N))  # store log-likelihoods
-
-        # find optimal theta where B_i dictates which elements get regularized to infinity
-
-
-
+        # find optimal theta where B_i dictates which elements get regularized to infinit
         # Draw bernoulli
         B = np.zeros((H,N,nr_params))
         for h in range(H):
@@ -278,11 +274,11 @@ def CE_glasso(X, w, N, tail_prob, nr_its, alpha, kappa, alpha_in_CE, metric, use
             Xs = []
             for j in range(H):
                 if j == 0:
-                    Xs.append(X[j*w:((j+1)*w + 10)][np.random.choice(w+10, w)])
+                    Xs.append(X[j*w:((j+1)*w )][np.random.choice(w, w)])
                 elif j == H-1:
-                    Xs.append(X[(j*w-10):(j+1)*w][np.random.choice(w+10, w)])
+                    Xs.append(X[(j*w):(j+1)*w][np.random.choice(w, w)])
                 else:
-                    Xs.append(X[(j*w-5):((j+1)*w + 5)][np.random.choice(w+10, w)])
+                    Xs.append(X[(j*w):((j+1)*w)][np.random.choice(w, w)])
   
             Xs = np.vstack(Xs)
 
@@ -297,9 +293,10 @@ def CE_glasso(X, w, N, tail_prob, nr_its, alpha, kappa, alpha_in_CE, metric, use
                 reg_matrix = np.ones((H,d,d))*alpha
             else:
                 reg_matrix = np.zeros((H,d,d))
+
             for h in range(H):
                 np.fill_diagonal(reg_matrix[h],0)
-                reg_matrix[h][np.triu_indices(d,1)] = B[h,i]*999999
+                reg_matrix[h][np.triu_indices(d,1)] = B[h,i]*99999999
                 reg_matrix[h] = reg_matrix[h] + reg_matrix[h].T
 
 
@@ -314,40 +311,43 @@ def CE_glasso(X, w, N, tail_prob, nr_its, alpha, kappa, alpha_in_CE, metric, use
                 
             dg_opt2 = dg.dygl_inner_em(X_used, obs_per_graph = w, max_iter = 2000, lamda = reg_matrix, kappa =kappa, tol = 1e-3)
             dg_opt2.fit(nr_workers=1, temporal_penalty="element-wise", lik_type="gaussian",verbose=False)
-            dg_opt2.theta[np.abs(dg_opt2.theta)<1e-5] = 0
+            dg_opt2.theta[np.abs(dg_opt2.theta)<1e-3] = 0
+            particle_graph = dg_opt2.theta.copy()
+            particle_graph[np.abs(particle_graph)<1e-3] = 0
             
             thetas_sim[i] = dg_opt2.theta.copy()
 
-            val_func = np.zeros(H)
+        
             for h in range(H):
                 if metric == 'cai':
-                    _, val1 = my_hdtest(Xs[h*w:(h+1)*w], np.linalg.inv(theta_reference[h]),X_used[h*w:(h+1)*w], np.linalg.inv(dg_opt2.theta[h]))
+                    _, val1 = my_hdtest(Xs[h*w:(h+1)*w], np.linalg.inv(theta_reference[h]),X_used[h*w:(h+1)*w], np.linalg.inv(particle_graph[h]))
                 elif metric == 'zero-one':
-                    val1 = -np.sum(np.sign(theta_reference[h][np.triu_indices(d,1)])==np.sign(dg_opt2.theta[h][np.triu_indices(d,1)]))
-                #val1 = np.linalg.norm(theta_reference[0]-theta1)
+                    val1 = -np.sum(np.sign(theta_reference[h][np.triu_indices(d,1)])==np.sign(particle_graph[h][np.triu_indices(d,1)]))
+                    
                 value_vals[h,it_nr-1,i] = val1
-                #_, value_vals[h,it_nr-1,i] = my_hdtest(np.vstack((X1,X2)), np.linalg.inv(0.5*(theta_reference[0]+theta_reference[1])),np.vstack((X1,X2)), np.linalg.inv(0.5*(theta1+theta2)))
-                #value_vals[h,it_nr-1,i] = np.linalg.norm(theta_reference[0]+theta_reference[1] - theta1 - theta2)
+
+
             pbar.update()
 
         # Get quantile (best value)
+        val_func = np.zeros(H)
         for h in range(H):
             value_vals[h,it_nr-1] = -value_vals[h,it_nr-1]
-            val_func[h] = np.quantile(value_vals[h,it_nr-1,~np.isnan(value_vals[h,it_nr-1])], tail_prob)
+            val_func[h] = np.quantile(value_vals[h,it_nr-1], tail_prob)
         
         # update p
         for h in range(H):
             for i in range(nr_params):
-                p[h,it_nr, i] = np.sum((value_vals[h,it_nr-1,~np.isnan(value_vals[h,it_nr-1])] >= val_func[h])*B[h,~np.isnan(value_vals[h,it_nr-1]),i])/np.sum((value_vals[h,it_nr-1,~np.isnan(value_vals[h,it_nr-1])] >= val_func[h]))
-                sigmas[h,it_nr, i] = np.sqrt(np.sum((value_vals[h,it_nr-1,~np.isnan(value_vals[h,it_nr-1])] >= val_func[h])*(B[h,~np.isnan(value_vals[h,it_nr-1]),i]-p[h,it_nr-1, i])**2)/np.sum((value_vals[h,it_nr-1,~np.isnan(value_vals[h,it_nr-1])]>= val_func[h])))
+                p[h,it_nr, i] = np.sum((value_vals[h,it_nr-1] >= val_func[h])*B[h,:,i])/np.sum((value_vals[h,it_nr-1] >= val_func[h]))
+                sigmas[h,it_nr, i] = np.sqrt(np.sum((value_vals[h,it_nr-1] >= val_func[h])*(B[h,:,i]-p[h,it_nr-1, i])**2)/np.sum((value_vals[h,it_nr-1]>= val_func[h])))
 
-            s = np.exp(-2/it_nr)*0.9
+            s = 0.6#np.exp(-2/it_nr)*0.9
             p[h,it_nr] = s*p[h,it_nr] + (1-s)*p[h,it_nr-1]
 
 
     pbar.close()
 
-    return p, sigmas, thetas_sim
+    return p, sigmas, thetas_sim, value_vals
 
 
 
@@ -364,9 +364,9 @@ def run_sim(X, alpha, kappa, obs_per_graph, cnt_a, cnt_k, nr_ce_it, N, alpha_in_
     dg_opt1.fit(nr_workers=1, temporal_penalty="element-wise", lik_type="gaussian",verbose=False)
     thetas_point = dg_opt1.theta.copy()
     
-    p_distribution, sigmas, thetas_sim = CE_glasso(X.copy(), obs_per_graph, N, tail_prob, nr_ce_it, alpha, kappa, alpha_in_CE, metric, used)
+    p_distribution, sigmas, thetas_sim, value_vals = CE_glasso(X.copy(), obs_per_graph, N, tail_prob, nr_ce_it, alpha, kappa, alpha_in_CE, metric, used)
 
-    return p_distribution, thetas_point, sigmas, thetas_sim, cnt_k, cnt_a
+    return p_distribution, thetas_point, sigmas, thetas_sim, cnt_k, cnt_a, value_vals
 
 
 
@@ -375,7 +375,7 @@ if __name__ == '__main__':
         
 
     d = 10
-    s = 0.3
+    s = 0.6
     nr_ce_it = 60
     N = 4000
     As = gen_local_change(d,s)
@@ -394,12 +394,12 @@ if __name__ == '__main__':
 
     n = X.shape[0]
     kappas = [0.01, 0.05, 0.1]# np.exp(-np.linspace(5, 0,20)) #[0.02, 0.05, 0.08, 0.15] #np.exp(-np.linspace(5, 0,6))
-    alphas = [0.01,  0.025, 0.05, 0.07, 0.09, 0.11, 0.15, 0.2]#0.005, 0.01, ## np.exp(-np.linspace(5, 1.5,20)) #[0.01, 0.02, 0.03, 0.05, 0.09, 0.13]
+    alphas = [0.001, 0.01,  0.025, 0.05, 0.07, 0.09, 0.11, 0.15]#0.005, 0.01, ## np.exp(-np.linspace(5, 1.5,20)) #[0.01, 0.02, 0.03, 0.05, 0.09, 0.13]
 
 
 
 
-    def run_case(X, alpha_in_CE, model, metric, used, prefix):
+    def run_case(X, alpha_in_CE, model, metric, used, prefix, tail_prob):
         print(f'{prefix}_{obs_per_graph}_{metric}_{used}_{alpha_in_CE}' )
 
        
@@ -407,6 +407,7 @@ if __name__ == '__main__':
         sigmas = np.ones((len(kappas), len(alphas), int(n/obs_per_graph)    , nr_ce_it+1, nr_params))
         thetas = np.zeros((len(kappas), len(alphas), int(n/obs_per_graph), d,d)) 
         thetas_sim = np.zeros((len(kappas), len(alphas),N, int(n/obs_per_graph),d,d)) 
+        value_vals = np.zeros((len(kappas), len(alphas), int(n/obs_per_graph),nr_ce_it,N))
 
         pool = Pool(12)
         results = pool.starmap(run_sim, tqdm.tqdm((( X, alpha, kappa, obs_per_graph, cnt_a, cnt_k, nr_ce_it, N, alpha_in_CE, tail_prob, metric, used) for cnt_a, alpha in enumerate(alphas) for cnt_k, kappa in enumerate(kappas)), total = len(kappas)*len(alphas)))
@@ -416,12 +417,13 @@ if __name__ == '__main__':
             thetas[result[4], result[5]] = result[1]
             sigmas[result[4], result[5]]= result[2]
             thetas_sim[result[4], result[5]]= result[3]
+            value_vals[result[4], result[5]]= result[6]
 
         out_dict = {'alphas':alphas, 'kappas':kappas, 'p_distribution':p_distribution, 'thetas': thetas, 'thetas_sim':thetas_sim, 'X':X, 'As':As, 'N':N, 'nr_ce_it':nr_ce_it,
                     'ratio_nr_zeros':ratio_nr_zeros, 'obs_per_graph':obs_per_graph, 'alpha_in_CE':alpha_in_CE, 'model':model, 'sigmas':sigmas,
-                    'used':used}
+                    'used':used, 'value_vals':value_vals}
 
-        with open(f'data/GraphHypTest/{prefix}_{obs_per_graph}_{metric}_{used}_{alpha_in_CE}.pkl', 'wb') as handle:
+        with open(f'data/GraphHypTest/{prefix}_{obs_per_graph}_{metric}_{used}_{alpha_in_CE}_tp_{tail_prob}.pkl', 'wb') as handle:
         #with open(f'data/GraphHypTest/test.pkl', 'wb') as handle:
             pickle.dump(out_dict, handle, protocol=pickle.HIGHEST_PROTOCOL)
 
@@ -429,12 +431,12 @@ if __name__ == '__main__':
 
 
 
-    # run_case(X.copy(), alpha_in_CE = False,model = 'Gaussian',metric = 'zero-one',used = 'xs_xs',prefix = 'known_cp')
-    run_case(X.copy(),alpha_in_CE = False,model = 'Gaussian',metric = 'zero-one',used = 'xs_x',prefix = 'known_cp')
-    run_case(X.copy(),alpha_in_CE = False,model = 'Gaussian',metric = 'cai',used = 'xs_xs',prefix = 'known_cp')
-    run_case(X.copy(),alpha_in_CE = False,model = 'Gaussian',metric = 'cai',used = 'xs_x', prefix = 'known_cp')
-    #run_case(alpha_in_CE = True,model = 'Gaussian',metric = 'cai',used = 'xs_xs')
-    #run_case(alpha_in_CE = True,model = 'Gaussian',metric = 'cai',used = 'xs_x')
+    #run_case(X.copy(), alpha_in_CE = False,model = 'Gaussian',metric = 'zero-one',used = 'xs_xs',prefix = f'known_cp_{s}')
+    #run_case(X.copy(), alpha_in_CE = False,model = 'Gaussian',metric = 'zero-one',used = 'xs_x',prefix = f'known_cp_{s}')
+    #run_case(X.copy(), alpha_in_CE = False,model = 'Gaussian',metric = 'cai',used = 'xs_xs',prefix = f'known_cp_{s}')
+    #run_case(X.copy(), alpha_in_CE = False,model = 'Gaussian',metric = 'cai',used = 'xs_x', prefix = f'known_cp_{s}')
+
+
 
 
 
@@ -447,10 +449,15 @@ if __name__ == '__main__':
 
 
 
-    run_case(X.copy(),alpha_in_CE = False,model = 'Gaussian',metric = 'zero-one',used = 'xs_xs',prefix = 'unknown_cp')
-    run_case(X.copy(),alpha_in_CE = False,model = 'Gaussian',metric = 'zero-one',used = 'xs_x',prefix = 'unknown_cp')
-    run_case(X.copy(),alpha_in_CE = False,model = 'Gaussian',metric = 'cai',used = 'xs_xs',prefix = 'unknown_cp')
-    run_case(X.copy(),alpha_in_CE = False,model = 'Gaussian',metric = 'cai',used = 'xs_x', prefix = 'unknown_cp')
+    run_case(X.copy(),alpha_in_CE = False,model = 'Gaussian',metric = 'zero-one',used = 'xs_xs',prefix = f'unknown_cp_{s}', tail_prob=0.9)
+    run_case(X.copy(),alpha_in_CE = False,model = 'Gaussian',metric = 'zero-one',used = 'xs_xs',prefix = f'unknown_cp_{s}', tail_prob=0.8)
+    run_case(X.copy(),alpha_in_CE = False,model = 'Gaussian',metric = 'cai',used = 'xs_xs',prefix = f'unknown_cp_{s}', tail_prob=0.9)
+    run_case(X.copy(),alpha_in_CE = False,model = 'Gaussian',metric = 'cai',used = 'xs_xs',prefix = f'unknown_cp_{s}', tail_prob=0.8)
+
+
+    #run_case(X.copy(),alpha_in_CE = False,model = 'Gaussian',metric = 'zero-one',used = 'xs_x',prefix = f'unknown_cp_{s}')
+    # run_case(X.copy(),alpha_in_CE = False,model = 'Gaussian',metric = 'cai',used = 'xs_xs',prefix = f'unknown_cp_{s}')
+    #run_case(X.copy(),alpha_in_CE = False,model = 'Gaussian',metric = 'cai',used = 'xs_x', prefix = f'unknown_cp_{s}')
 
 
 

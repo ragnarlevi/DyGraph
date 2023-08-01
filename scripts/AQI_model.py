@@ -7,6 +7,7 @@ from scipy.stats import multivariate_normal
 import networkx as nx
 import sys
 sys.path.insert(0, 'C:/Users/User/Code/DyGraph')
+sys.path.insert(0, 'C:/Users/User/Code/DyGraph/src')
 
 import DyGraph as dg
 import port_measures as pm
@@ -38,8 +39,8 @@ if __name__ == '__main__':
 
 
     obs_per_graph = 30
-    lik_type='gaussian'
-    tol = 1e-6
+    lik_type='t'
+    tol = 1e-2
 
     # load and scale data
     with open(f'data/AQI/cleaned_aqi.pkl', 'rb') as handle:
@@ -94,11 +95,11 @@ if __name__ == '__main__':
     ts_df_scaled = scaler.fit_transform(ts_df)
     ts_df_scaled = ts_df_scaled[:2700]
 
-    # spatial aalpha np.round(np.exp(-np.linspace(5, -2,40)))# 
+    # spatial aalpha np.exp(-np.linspace(5, -2,40))# 
     # normal alpha np.exp(-np.linspace(5, 0.5,20))
 
-    kappas = np.exp(-np.linspace(3.5, 1,10))
-    alphas = np.exp(-np.linspace(5, 0.5,20))
+    kappas = [0.03]#np.exp(-np.linspace(3.5, 1,10))
+    alphas = np.exp(-np.linspace(5, -1.3,40))# np.exp(-np.linspace(5, 0.5,20))
     thetas = {i:[] for i in range(len(kappas))}
     nus = {i:[] for i in range(len(kappas))}
     F_errors = {i:[] for i in range(len(kappas))}
@@ -113,8 +114,8 @@ if __name__ == '__main__':
             pbar.set_description(f"kappa {kappa}, alpha {alpha}")
 
 
-            dygl_aqi = dg.dygl_inner_em(X = ts_df_scaled, obs_per_graph=obs_per_graph, max_iter=10000, lamda= alpha, kappa=kappa, lik_type=lik_type, tol = tol)
-            dygl_aqi.fit(temporal_penalty='element-wise', nr_workers=8, theta_init=theta_init)
+            dygl_aqi = dg.dygl_inner_em(X = ts_df_scaled, obs_per_graph=obs_per_graph, max_iter=1000, lamda= alpha*R, kappa=kappa, lik_type=lik_type, tol = tol)
+            dygl_aqi.fit(temporal_penalty='element-wise', nr_workers=4)
             theta_init = dygl_aqi.theta.copy()
             thetas[k_cnt].append(dygl_aqi.theta)
             nus[k_cnt].append(dygl_aqi.nu)
@@ -125,7 +126,7 @@ if __name__ == '__main__':
             out_dict = {'thetas':thetas, 'nus':nus, 'F_errors':F_errors, 'alphas':alphas, 'kappas':kappas, 'obs_per_graph':obs_per_graph, 'lik_type':lik_type, 'tol':1e-6,
                         'index':ts_df.index[:2700], 'R':R, 'X':ts_df_scaled}
 
-            with open(f'data/AQI/AQI_{lik_type}_model_ew.pkl', 'wb') as handle:
+            with open(f'data/AQI/AQI_{lik_type}_model_ew2.pkl', 'wb') as handle:
                 pickle.dump(out_dict, handle, protocol=pickle.HIGHEST_PROTOCOL)
 
 
