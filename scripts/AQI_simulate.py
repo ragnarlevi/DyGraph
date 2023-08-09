@@ -131,10 +131,10 @@ def CE_glasso(X, w, N, tail_prob, nr_its, alpha, kappa, alpha_in_CE, metric, use
     nr_params = int(d*(d-1)/2)
 
     #pbar = tqdm.tqdm(total = nr_its*N)
-    pool = Pool(12)
+    pool = Pool(4)
     value_vals = np.zeros((H,nr_its,N))  # store log-likelihoods
     for it_nr in range(1,nr_its+1):
-        print(f'it_nr {it_nr}: {N}_{lik_type}_{alpha_in_CE}_{metric}_{used}_ew_s{s}_spar{sparsity}_tp{tail_prob}_a{alpha}_k{kappa}_ni{nr_its}')
+        print(f'it_nr {it_nr}: {w}_{N}_{lik_type}_{alpha_in_CE}_{metric}_{used}_ew_s{s}_spar{sparsity}_tp{tail_prob}_a{alpha}_k{kappa}_ni{nr_its}_k{known}')
 
         # Draw bernoulli
         B = np.zeros((H,N,nr_params))
@@ -189,7 +189,7 @@ def CE_glasso(X, w, N, tail_prob, nr_its, alpha, kappa, alpha_in_CE, metric, use
             'X':X, 'tail_prob':tail_prob, 'N':N, 'nr_its':nr_its, 'alpha':alpha, 'kappa':kappa,
         'alpha_in_CE':alpha_in_CE, 'metric':metric, 'used':used,'p':p, 'sigmas':sigmas, 'thetas_sim':thetas_sim, 'value_vals':value_vals, 's':s, 'sparsity':sparsity}
 
-        with open(f'data/GraphHypTest/unknown_single_sim_{N}_{lik_type}_{alpha_in_CE}_{metric}_{used}_ew_s{s}_spar{sparsity}_tp{tail_prob}_a{alpha}_k{kappa}_ni{nr_its}_k{known}.pkl', 'wb') as handle:
+        with open(f'data/GraphHypTest/unknown_single_sim_w{w}_{N}_{lik_type}_{alpha_in_CE}_{metric}_{used}_ew_s{s}_spar{sparsity}_tp{tail_prob}_a{alpha}_k{kappa}_ni{nr_its}_k{known}.pkl', 'wb') as handle:
             pickle.dump(out_dict, handle, protocol=pickle.HIGHEST_PROTOCOL)
 
 
@@ -351,85 +351,85 @@ if __name__ == '__main__':
 
 
 
-    d = 10
-    sparsity = 0.6
-    As = gen_local_change(d,sparsity)
-    nr_params = int(d*(d-1)/2)
+    # d = 10
+    # sparsity = 0.6
+    # As = gen_local_change(d,sparsity)
+    # nr_params = int(d*(d-1)/2)
   
 
 
-    rnd = np.random.RandomState(10)
-    X1 = rnd.multivariate_normal(mean = np.zeros(d),  cov = np.linalg.inv(As[0]), size = 80)
-    X2 = rnd.multivariate_normal(mean = np.zeros(d),  cov =  np.linalg.inv(As[1]), size = 40)
-    X3 = rnd.multivariate_normal(mean = np.zeros(d),  cov =  np.linalg.inv(As[2]), size = 30)
-    X = np.vstack([X1,X2,X3])
+    # rnd = np.random.RandomState(10)
+    # X1 = rnd.multivariate_normal(mean = np.zeros(d),  cov = np.linalg.inv(As[0]), size = 80)
+    # X2 = rnd.multivariate_normal(mean = np.zeros(d),  cov =  np.linalg.inv(As[1]), size = 40)
+    # X3 = rnd.multivariate_normal(mean = np.zeros(d),  cov =  np.linalg.inv(As[2]), size = 30)
+    # X = np.vstack([X1,X2,X3])
 
 
-    CE_glasso(X, obs_per_graph, 5000, 0.8, nr_its, 0.05, 0.01, alpha_in_CE, 'cai', used, 0.6, sparsity, False)
-    CE_glasso(X, obs_per_graph, 5000, 0.8, nr_its, 0.05, 0.05, alpha_in_CE, 'cai', used, 0.6, sparsity, False)
-    CE_glasso(X, obs_per_graph, 5000, 0.8, nr_its, 0.025, 0.01, alpha_in_CE, 'cai', used, 0.6, sparsity, False)
-    CE_glasso(X, obs_per_graph, 5000, 0.8, nr_its, 0.025, 0.05, alpha_in_CE, 'cai', used, 0.6, sparsity, False)
+    #CE_glasso(X, obs_per_graph, 5000, 0.6, nr_its, 0.05, 0.01, alpha_in_CE, 'cai', used, 0.6, sparsity, False)
+    #CE_glasso(X, obs_per_graph, 5000, 0.6, nr_its, 0.05, 0.05, alpha_in_CE, 'cai', used, 0.6, sparsity, False)
+    #CE_glasso(X, obs_per_graph, 5000, 0.6, nr_its, 0.025, 0.01, alpha_in_CE, 'cai', used, 0.6, sparsity, False)
+    #CE_glasso(X, obs_per_graph, 5000, 0.6, nr_its, 0.025, 0.05, alpha_in_CE, 'cai', used, 0.6, sparsity, False)
 
-    CE_glasso(X, obs_per_graph, 5000, 0.8, nr_its, 0.05, 0.01, alpha_in_CE, 'zero-one', used, 0.6, sparsity, False)
-    CE_glasso(X, obs_per_graph, 5000, 0.8, nr_its, 0.05, 0.05, alpha_in_CE, 'zero-one', used, 0.6, sparsity, False)
-    CE_glasso(X, obs_per_graph, 5000, 0.8, nr_its, 0.025, 0.01, alpha_in_CE, 'zero-one', used, 0.6, sparsity, False)
-    CE_glasso(X, obs_per_graph, 5000, 0.8, nr_its, 0.025, 0.05, alpha_in_CE, 'zero-one', used, 0.6, sparsity, False)
+    #CE_glasso(X, obs_per_graph, 5000, 0.6, nr_its, 0.05, 0.01, alpha_in_CE, 'zero-one', used, 0.6, sparsity, False)
+    #CE_glasso(X, obs_per_graph, 5000, 0.6, nr_its, 0.05, 0.05, alpha_in_CE, 'zero-one', used, 0.6, sparsity, False)
+    #CE_glasso(X, obs_per_graph, 5000, 0.6, nr_its, 0.025, 0.01, alpha_in_CE, 'zero-one', used, 0.6, sparsity, False)
+    #CE_glasso(X, obs_per_graph, 5000, 0.6, nr_its, 0.025, 0.05, alpha_in_CE, 'zero-one', used, 0.6, sparsity, False)
 
-    CE_glasso(X, obs_per_graph, 5000, 0.9, nr_its, 0.05, 0.01, alpha_in_CE, 'cai', used, 0.6, sparsity, False)
-    CE_glasso(X, obs_per_graph, 5000, 0.9, nr_its, 0.05, 0.05, alpha_in_CE, 'cai', used, 0.6, sparsity, False)
-    CE_glasso(X, obs_per_graph, 5000, 0.9, nr_its, 0.025, 0.01, alpha_in_CE, 'cai', used, 0.6, sparsity, False)
-    CE_glasso(X, obs_per_graph, 5000, 0.9, nr_its, 0.025, 0.05, alpha_in_CE, 'cai', used, 0.6, sparsity, False)
+    # CE_glasso(X, obs_per_graph, 5000, 0.9, nr_its, 0.05, 0.01, alpha_in_CE, 'cai', used, 0.6, sparsity, False)
+    # CE_glasso(X, obs_per_graph, 5000, 0.9, nr_its, 0.05, 0.05, alpha_in_CE, 'cai', used, 0.6, sparsity, False)
+    # CE_glasso(X, obs_per_graph, 5000, 0.9, nr_its, 0.025, 0.01, alpha_in_CE, 'cai', used, 0.6, sparsity, False)
+    # CE_glasso(X, obs_per_graph, 5000, 0.9, nr_its, 0.025, 0.05, alpha_in_CE, 'cai', used, 0.6, sparsity, False)
 
-    CE_glasso(X, obs_per_graph, 5000, 0.9, nr_its, 0.05, 0.01, alpha_in_CE, 'zero-one', used, 0.6, sparsity, False)
-    CE_glasso(X, obs_per_graph, 5000, 0.9, nr_its, 0.05, 0.05, alpha_in_CE, 'zero-one', used, 0.6, sparsity, False)
-    CE_glasso(X, obs_per_graph, 5000, 0.9, nr_its, 0.025, 0.01, alpha_in_CE, 'zero-one', used, 0.6, sparsity, False)
-    CE_glasso(X, obs_per_graph, 5000, 0.9, nr_its, 0.025, 0.05, alpha_in_CE, 'zero-one', used, 0.6, sparsity, False)
-
-
-    CE_glasso(X, obs_per_graph, 5000, 0.8, nr_its, 0.05, 0.01, alpha_in_CE, 'zero-one', used, 0.3, sparsity, False)
-    CE_glasso(X, obs_per_graph, 5000, 0.8, nr_its, 0.05, 0.05, alpha_in_CE, 'zero-one', used, 0.6, sparsity, False)
-    CE_glasso(X, obs_per_graph, 5000, 0.8, nr_its, 0.05, 0.01, alpha_in_CE, 'zero-one', used, 0.9, sparsity, False)
+    # CE_glasso(X, obs_per_graph, 5000, 0.9, nr_its, 0.05, 0.01, alpha_in_CE, 'zero-one', used, 0.6, sparsity, False)
+    # CE_glasso(X, obs_per_graph, 5000, 0.9, nr_its, 0.05, 0.05, alpha_in_CE, 'zero-one', used, 0.6, sparsity, False)
+    # CE_glasso(X, obs_per_graph, 5000, 0.9, nr_its, 0.025, 0.01, alpha_in_CE, 'zero-one', used, 0.6, sparsity, False)
+    # CE_glasso(X, obs_per_graph, 5000, 0.9, nr_its, 0.025, 0.05, alpha_in_CE, 'zero-one', used, 0.6, sparsity, False)
 
 
+    # CE_glasso(X, obs_per_graph, 5000, 0.8, nr_its, 0.05, 0.01, alpha_in_CE, 'zero-one', used, 0.3, sparsity, False)
+    # CE_glasso(X, obs_per_graph, 5000, 0.8, nr_its, 0.05, 0.05, alpha_in_CE, 'zero-one', used, 0.6, sparsity, False)
+    # CE_glasso(X, obs_per_graph, 5000, 0.8, nr_its, 0.05, 0.01, alpha_in_CE, 'zero-one', used, 0.9, sparsity, False)
 
 
-    d = 10
-    sparsity = 0.3
-    As = gen_local_change(d,sparsity)
-    nr_params = int(d*(d-1)/2)
+
+
+    # d = 10
+    # sparsity = 0.3
+    # As = gen_local_change(d,sparsity)
+    # nr_params = int(d*(d-1)/2)
   
 
 
-    rnd = np.random.RandomState(10)
-    X1 = rnd.multivariate_normal(mean = np.zeros(d),  cov = np.linalg.inv(As[0]), size = 80)
-    X2 = rnd.multivariate_normal(mean = np.zeros(d),  cov =  np.linalg.inv(As[1]), size = 40)
-    X3 = rnd.multivariate_normal(mean = np.zeros(d),  cov =  np.linalg.inv(As[2]), size = 30)
-    X = np.vstack([X1,X2,X3])
+    # rnd = np.random.RandomState(10)
+    # X1 = rnd.multivariate_normal(mean = np.zeros(d),  cov = np.linalg.inv(As[0]), size = 80)
+    # X2 = rnd.multivariate_normal(mean = np.zeros(d),  cov =  np.linalg.inv(As[1]), size = 40)
+    # X3 = rnd.multivariate_normal(mean = np.zeros(d),  cov =  np.linalg.inv(As[2]), size = 30)
+    # X = np.vstack([X1,X2,X3])
 
-    CE_glasso(X, obs_per_graph, 5000, 0.8, nr_its, 0.05, 0.01, alpha_in_CE, 'cai', used, 0.6, sparsity, False)
-    CE_glasso(X, obs_per_graph, 5000, 0.8, nr_its, 0.05, 0.05, alpha_in_CE, 'cai', used, 0.6, sparsity, False)
-    CE_glasso(X, obs_per_graph, 5000, 0.8, nr_its, 0.025, 0.01, alpha_in_CE, 'cai', used, 0.6, sparsity, False)
-    CE_glasso(X, obs_per_graph, 5000, 0.8, nr_its, 0.025, 0.05, alpha_in_CE, 'cai', used, 0.6, sparsity, False)
+    # CE_glasso(X, obs_per_graph, 5000, 0.8, nr_its, 0.05, 0.01, alpha_in_CE, 'cai', used, 0.6, sparsity, False)
+    # CE_glasso(X, obs_per_graph, 5000, 0.8, nr_its, 0.05, 0.05, alpha_in_CE, 'cai', used, 0.6, sparsity, False)
+    # CE_glasso(X, obs_per_graph, 5000, 0.8, nr_its, 0.025, 0.01, alpha_in_CE, 'cai', used, 0.6, sparsity, False)
+    # CE_glasso(X, obs_per_graph, 5000, 0.8, nr_its, 0.025, 0.05, alpha_in_CE, 'cai', used, 0.6, sparsity, False)
 
-    CE_glasso(X, obs_per_graph, 5000, 0.8, nr_its, 0.05, 0.01, alpha_in_CE, 'zero-one', used, 0.6, sparsity, False)
-    CE_glasso(X, obs_per_graph, 5000, 0.8, nr_its, 0.05, 0.05, alpha_in_CE, 'zero-one', used, 0.6, sparsity, False)
-    CE_glasso(X, obs_per_graph, 5000, 0.8, nr_its, 0.025, 0.01, alpha_in_CE, 'zero-one', used, 0.6, sparsity, False)
-    CE_glasso(X, obs_per_graph, 5000, 0.8, nr_its, 0.025, 0.05, alpha_in_CE, 'zero-one', used, 0.6, sparsity, False)
+    # CE_glasso(X, obs_per_graph, 5000, 0.8, nr_its, 0.05, 0.01, alpha_in_CE, 'zero-one', used, 0.6, sparsity, False)
+    # CE_glasso(X, obs_per_graph, 5000, 0.8, nr_its, 0.05, 0.05, alpha_in_CE, 'zero-one', used, 0.6, sparsity, False)
+    # CE_glasso(X, obs_per_graph, 5000, 0.8, nr_its, 0.025, 0.01, alpha_in_CE, 'zero-one', used, 0.6, sparsity, False)
+    # CE_glasso(X, obs_per_graph, 5000, 0.8, nr_its, 0.025, 0.05, alpha_in_CE, 'zero-one', used, 0.6, sparsity, False)
 
-    CE_glasso(X, obs_per_graph, 5000, 0.9, nr_its, 0.05, 0.01, alpha_in_CE, 'cai', used, 0.6, sparsity, False)
-    CE_glasso(X, obs_per_graph, 5000, 0.9, nr_its, 0.05, 0.05, alpha_in_CE, 'cai', used, 0.6, sparsity, False)
-    CE_glasso(X, obs_per_graph, 5000, 0.9, nr_its, 0.025, 0.01, alpha_in_CE, 'cai', used, 0.6, sparsity, False)
-    CE_glasso(X, obs_per_graph, 5000, 0.9, nr_its, 0.025, 0.05, alpha_in_CE, 'cai', used, 0.6, sparsity, False)
+    # CE_glasso(X, obs_per_graph, 5000, 0.9, nr_its, 0.05, 0.01, alpha_in_CE, 'cai', used, 0.6, sparsity, False)
+    # CE_glasso(X, obs_per_graph, 5000, 0.9, nr_its, 0.05, 0.05, alpha_in_CE, 'cai', used, 0.6, sparsity, False)
+    # CE_glasso(X, obs_per_graph, 5000, 0.9, nr_its, 0.025, 0.01, alpha_in_CE, 'cai', used, 0.6, sparsity, False)
+    # CE_glasso(X, obs_per_graph, 5000, 0.9, nr_its, 0.025, 0.05, alpha_in_CE, 'cai', used, 0.6, sparsity, False)
 
-    CE_glasso(X, obs_per_graph, 5000, 0.9, nr_its, 0.05, 0.01, alpha_in_CE, 'zero-one', used, 0.6, sparsity, False)
-    CE_glasso(X, obs_per_graph, 5000, 0.9, nr_its, 0.05, 0.05, alpha_in_CE, 'zero-one', used, 0.6, sparsity, False)
-    CE_glasso(X, obs_per_graph, 5000, 0.9, nr_its, 0.025, 0.01, alpha_in_CE, 'zero-one', used, 0.6, sparsity, False)
-    CE_glasso(X, obs_per_graph, 5000, 0.9, nr_its, 0.025, 0.05, alpha_in_CE, 'zero-one', used, 0.6, sparsity, False)
+    # CE_glasso(X, obs_per_graph, 5000, 0.9, nr_its, 0.05, 0.01, alpha_in_CE, 'zero-one', used, 0.6, sparsity, False)
+    # CE_glasso(X, obs_per_graph, 5000, 0.9, nr_its, 0.05, 0.05, alpha_in_CE, 'zero-one', used, 0.6, sparsity, False)
+    # CE_glasso(X, obs_per_graph, 5000, 0.9, nr_its, 0.025, 0.01, alpha_in_CE, 'zero-one', used, 0.6, sparsity, False)
+    # CE_glasso(X, obs_per_graph, 5000, 0.9, nr_its, 0.025, 0.05, alpha_in_CE, 'zero-one', used, 0.6, sparsity, False)
 
 
-    CE_glasso(X, obs_per_graph, 5000, 0.8, nr_its, 0.05, 0.01, alpha_in_CE, 'zero-one', used, 0.3, sparsity, False)
-    CE_glasso(X, obs_per_graph, 5000, 0.8, nr_its, 0.05, 0.05, alpha_in_CE, 'zero-one', used, 0.6, sparsity, False)
-    CE_glasso(X, obs_per_graph, 5000, 0.8, nr_its, 0.05, 0.01, alpha_in_CE, 'zero-one', used, 0.9, sparsity, False)
+    # CE_glasso(X, obs_per_graph, 5000, 0.8, nr_its, 0.05, 0.01, alpha_in_CE, 'zero-one', used, 0.3, sparsity, False)
+    # CE_glasso(X, obs_per_graph, 5000, 0.8, nr_its, 0.05, 0.05, alpha_in_CE, 'zero-one', used, 0.6, sparsity, False)
+    # CE_glasso(X, obs_per_graph, 5000, 0.8, nr_its, 0.05, 0.01, alpha_in_CE, 'zero-one', used, 0.9, sparsity, False)
 
 
 
@@ -444,71 +444,64 @@ if __name__ == '__main__':
     X1 = rnd.multivariate_normal(mean = np.zeros(d),  cov = np.linalg.inv(As[0]), size = 50)
     X2 = rnd.multivariate_normal(mean = np.zeros(d),  cov =  np.linalg.inv(As[1]), size = 50)
     X3 = rnd.multivariate_normal(mean = np.zeros(d),  cov =  np.linalg.inv(As[2]), size = 50)
-    X = np.vstack([X1,X2,X3])
 
+    X11 = rnd.multivariate_normal(mean = np.zeros(d),  cov = np.linalg.inv(As[0]), size = 450)
+    X22 = rnd.multivariate_normal(mean = np.zeros(d),  cov = np.linalg.inv(As[1]), size = 450)
+    X33 = rnd.multivariate_normal(mean = np.zeros(d),  cov = np.linalg.inv(As[2]), size = 450)
+    X = np.vstack([X1,X11,X2, X22,X3, X33])
 
-    CE_glasso(X, obs_per_graph, 5000, 0.8, nr_its, 0.05, 0.01, alpha_in_CE, 'cai', used, 0.6, sparsity, True)
-    CE_glasso(X, obs_per_graph, 5000, 0.8, nr_its, 0.05, 0.05, alpha_in_CE, 'cai', used, 0.6, sparsity, True)
-    CE_glasso(X, obs_per_graph, 5000, 0.8, nr_its, 0.025, 0.01, alpha_in_CE, 'cai', used, 0.6, sparsity, True)
-    CE_glasso(X, obs_per_graph, 5000, 0.8, nr_its, 0.025, 0.05, alpha_in_CE, 'cai', used, 0.6, sparsity, True)
+    for tp in [0.8, 0.6, 0.9, 0.5]:
+        CE_glasso(X, 500, 5000, tp, nr_its, 0.05, 0.01, alpha_in_CE, 'cai', used, 0.6, sparsity, True)
+        CE_glasso(X, 500, 5000, tp, nr_its, 0.05, 0.05, alpha_in_CE, 'cai', used, 0.6, sparsity, True)
+        CE_glasso(X, 500, 5000, tp, nr_its, 0.025, 0.01, alpha_in_CE, 'cai', used, 0.6, sparsity, True)
+        CE_glasso(X, 500, 5000, tp, nr_its, 0.025, 0.05, alpha_in_CE, 'cai', used, 0.6, sparsity, True)
 
-    CE_glasso(X, obs_per_graph, 5000, 0.8, nr_its, 0.05, 0.01, alpha_in_CE, 'zero-one', used, 0.6, sparsity, True)
-    CE_glasso(X, obs_per_graph, 5000, 0.8, nr_its, 0.05, 0.05, alpha_in_CE, 'zero-one', used, 0.6, sparsity, True)
-    CE_glasso(X, obs_per_graph, 5000, 0.8, nr_its, 0.025, 0.01, alpha_in_CE, 'zero-one', used, 0.6, sparsity, True)
-    CE_glasso(X, obs_per_graph, 5000, 0.8, nr_its, 0.025, 0.05, alpha_in_CE, 'zero-one', used, 0.6, sparsity, True)
+        CE_glasso(X, 500, 5000, tp, nr_its, 0.05, 0.01, alpha_in_CE, 'zero-one', used, 0.6, sparsity, True)
+        CE_glasso(X, 500, 5000, tp, nr_its, 0.05, 0.05, alpha_in_CE, 'zero-one', used, 0.6, sparsity, True)
+        CE_glasso(X, 500, 5000, tp, nr_its, 0.025, 0.01, alpha_in_CE, 'zero-one', used, 0.6, sparsity, True)
+        CE_glasso(X, 500, 5000, tp, nr_its, 0.025, 0.05, alpha_in_CE, 'zero-one', used, 0.6, sparsity, True)
 
-    CE_glasso(X, obs_per_graph, 5000, 0.9, nr_its, 0.05, 0.01, alpha_in_CE, 'cai', used, 0.6, sparsity, True)
-    CE_glasso(X, obs_per_graph, 5000, 0.9, nr_its, 0.05, 0.05, alpha_in_CE, 'cai', used, 0.6, sparsity, True)
-    CE_glasso(X, obs_per_graph, 5000, 0.9, nr_its, 0.025, 0.01, alpha_in_CE, 'cai', used, 0.6, sparsity, True)
-    CE_glasso(X, obs_per_graph, 5000, 0.9, nr_its, 0.025, 0.05, alpha_in_CE, 'cai', used, 0.6, sparsity, True)
-
-    CE_glasso(X, obs_per_graph, 5000, 0.9, nr_its, 0.05, 0.01, alpha_in_CE, 'zero-one', used, 0.6, sparsity, True)
-    CE_glasso(X, obs_per_graph, 5000, 0.9, nr_its, 0.05, 0.05, alpha_in_CE, 'zero-one', used, 0.6, sparsity, True)
-    CE_glasso(X, obs_per_graph, 5000, 0.9, nr_its, 0.025, 0.01, alpha_in_CE, 'zero-one', used, 0.6, sparsity, True)
-    CE_glasso(X, obs_per_graph, 5000, 0.9, nr_its, 0.025, 0.05, alpha_in_CE, 'zero-one', used, 0.6, sparsity, True)
-
-
-    CE_glasso(X, obs_per_graph, 5000, 0.8, nr_its, 0.05, 0.01, alpha_in_CE, 'zero-one', used, 0.3, sparsity, True)
-    CE_glasso(X, obs_per_graph, 5000, 0.8, nr_its, 0.05, 0.05, alpha_in_CE, 'zero-one', used, 0.6, sparsity, True)
-    CE_glasso(X, obs_per_graph, 5000, 0.8, nr_its, 0.05, 0.01, alpha_in_CE, 'zero-one', used, 0.9, sparsity, True)
+    # CE_glasso(X, obs_per_graph, 5000, 0.8, nr_its, 0.05, 0.01, alpha_in_CE, 'zero-one', used, 0.3, sparsity, True)
+    # CE_glasso(X, obs_per_graph, 5000, 0.8, nr_its, 0.05, 0.05, alpha_in_CE, 'zero-one', used, 0.6, sparsity, True)
+    # CE_glasso(X, obs_per_graph, 5000, 0.8, nr_its, 0.05, 0.01, alpha_in_CE, 'zero-one', used, 0.9, sparsity, True)
 
 
 
 
-    d = 10
-    sparsity = 0.3
-    As = gen_local_change(d,sparsity)
-    nr_params = int(d*(d-1)/2)
+    # d = 10
+    # sparsity = 0.3
+    # As = gen_local_change(d,sparsity)
+    # nr_params = int(d*(d-1)/2)
   
 
 
-    rnd = np.random.RandomState(10)
-    X1 = rnd.multivariate_normal(mean = np.zeros(d),  cov = np.linalg.inv(As[0]), size = 50)
-    X2 = rnd.multivariate_normal(mean = np.zeros(d),  cov =  np.linalg.inv(As[1]), size = 50)
-    X3 = rnd.multivariate_normal(mean = np.zeros(d),  cov =  np.linalg.inv(As[2]), size = 50)
-    X = np.vstack([X1,X2,X3])
+    # rnd = np.random.RandomState(10)
+    # X1 = rnd.multivariate_normal(mean = np.zeros(d),  cov = np.linalg.inv(As[0]), size = 50)
+    # X2 = rnd.multivariate_normal(mean = np.zeros(d),  cov =  np.linalg.inv(As[1]), size = 50)
+    # X3 = rnd.multivariate_normal(mean = np.zeros(d),  cov =  np.linalg.inv(As[2]), size = 50)
+    # X = np.vstack([X1,X2,X3])
 
-    CE_glasso(X, obs_per_graph, 5000, 0.8, nr_its, 0.05, 0.01, alpha_in_CE, 'cai', used, 0.6, sparsity, True)
-    CE_glasso(X, obs_per_graph, 5000, 0.8, nr_its, 0.05, 0.05, alpha_in_CE, 'cai', used, 0.6, sparsity, True)
-    CE_glasso(X, obs_per_graph, 5000, 0.8, nr_its, 0.025, 0.01, alpha_in_CE, 'cai', used, 0.6, sparsity, True)
-    CE_glasso(X, obs_per_graph, 5000, 0.8, nr_its, 0.025, 0.05, alpha_in_CE, 'cai', used, 0.6, sparsity, True)
+    # CE_glasso(X, obs_per_graph, 5000, 0.8, nr_its, 0.05, 0.01, alpha_in_CE, 'cai', used, 0.6, sparsity, True)
+    # CE_glasso(X, obs_per_graph, 5000, 0.8, nr_its, 0.05, 0.05, alpha_in_CE, 'cai', used, 0.6, sparsity, True)
+    # CE_glasso(X, obs_per_graph, 5000, 0.8, nr_its, 0.025, 0.01, alpha_in_CE, 'cai', used, 0.6, sparsity, True)
+    # CE_glasso(X, obs_per_graph, 5000, 0.8, nr_its, 0.025, 0.05, alpha_in_CE, 'cai', used, 0.6, sparsity, True)
 
-    CE_glasso(X, obs_per_graph, 5000, 0.8, nr_its, 0.05, 0.01, alpha_in_CE, 'zero-one', used, 0.6, sparsity, True)
-    CE_glasso(X, obs_per_graph, 5000, 0.8, nr_its, 0.05, 0.05, alpha_in_CE, 'zero-one', used, 0.6, sparsity, True)
-    CE_glasso(X, obs_per_graph, 5000, 0.8, nr_its, 0.025, 0.01, alpha_in_CE, 'zero-one', used, 0.6, sparsity, True)
-    CE_glasso(X, obs_per_graph, 5000, 0.8, nr_its, 0.025, 0.05, alpha_in_CE, 'zero-one', used, 0.6, sparsity, True)
+    # CE_glasso(X, obs_per_graph, 5000, 0.8, nr_its, 0.05, 0.01, alpha_in_CE, 'zero-one', used, 0.6, sparsity, True)
+    # CE_glasso(X, obs_per_graph, 5000, 0.8, nr_its, 0.05, 0.05, alpha_in_CE, 'zero-one', used, 0.6, sparsity, True)
+    # CE_glasso(X, obs_per_graph, 5000, 0.8, nr_its, 0.025, 0.01, alpha_in_CE, 'zero-one', used, 0.6, sparsity, True)
+    # CE_glasso(X, obs_per_graph, 5000, 0.8, nr_its, 0.025, 0.05, alpha_in_CE, 'zero-one', used, 0.6, sparsity, True)
 
-    CE_glasso(X, obs_per_graph, 5000, 0.9, nr_its, 0.05, 0.01, alpha_in_CE, 'cai', used, 0.6, sparsity, True)
-    CE_glasso(X, obs_per_graph, 5000, 0.9, nr_its, 0.05, 0.05, alpha_in_CE, 'cai', used, 0.6, sparsity, True)
-    CE_glasso(X, obs_per_graph, 5000, 0.9, nr_its, 0.025, 0.01, alpha_in_CE, 'cai', used, 0.6, sparsity, True)
-    CE_glasso(X, obs_per_graph, 5000, 0.9, nr_its, 0.025, 0.05, alpha_in_CE, 'cai', used, 0.6, sparsity, True)
+    # CE_glasso(X, obs_per_graph, 5000, 0.9, nr_its, 0.05, 0.01, alpha_in_CE, 'cai', used, 0.6, sparsity, True)
+    # CE_glasso(X, obs_per_graph, 5000, 0.9, nr_its, 0.05, 0.05, alpha_in_CE, 'cai', used, 0.6, sparsity, True)
+    # CE_glasso(X, obs_per_graph, 5000, 0.9, nr_its, 0.025, 0.01, alpha_in_CE, 'cai', used, 0.6, sparsity, True)
+    # CE_glasso(X, obs_per_graph, 5000, 0.9, nr_its, 0.025, 0.05, alpha_in_CE, 'cai', used, 0.6, sparsity, True)
 
-    CE_glasso(X, obs_per_graph, 5000, 0.9, nr_its, 0.05, 0.01, alpha_in_CE, 'zero-one', used, 0.6, sparsity, True)
-    CE_glasso(X, obs_per_graph, 5000, 0.9, nr_its, 0.05, 0.05, alpha_in_CE, 'zero-one', used, 0.6, sparsity, True)
-    CE_glasso(X, obs_per_graph, 5000, 0.9, nr_its, 0.025, 0.01, alpha_in_CE, 'zero-one', used, 0.6, sparsity, True)
-    CE_glasso(X, obs_per_graph, 5000, 0.9, nr_its, 0.025, 0.05, alpha_in_CE, 'zero-one', used, 0.6, sparsity, True)
+    # CE_glasso(X, obs_per_graph, 5000, 0.9, nr_its, 0.05, 0.01, alpha_in_CE, 'zero-one', used, 0.6, sparsity, True)
+    # CE_glasso(X, obs_per_graph, 5000, 0.9, nr_its, 0.05, 0.05, alpha_in_CE, 'zero-one', used, 0.6, sparsity, True)
+    # CE_glasso(X, obs_per_graph, 5000, 0.9, nr_its, 0.025, 0.01, alpha_in_CE, 'zero-one', used, 0.6, sparsity, True)
+    # CE_glasso(X, obs_per_graph, 5000, 0.9, nr_its, 0.025, 0.05, alpha_in_CE, 'zero-one', used, 0.6, sparsity, True)
 
 
-    CE_glasso(X, obs_per_graph, 5000, 0.8, nr_its, 0.05, 0.01, alpha_in_CE, 'zero-one', used, 0.3, sparsity, True)
-    CE_glasso(X, obs_per_graph, 5000, 0.8, nr_its, 0.05, 0.05, alpha_in_CE, 'zero-one', used, 0.6, sparsity, True)
-    CE_glasso(X, obs_per_graph, 5000, 0.8, nr_its, 0.05, 0.01, alpha_in_CE, 'zero-one', used, 0.9, sparsity, True)
+    # CE_glasso(X, obs_per_graph, 5000, 0.8, nr_its, 0.05, 0.01, alpha_in_CE, 'zero-one', used, 0.3, sparsity, True)
+    # CE_glasso(X, obs_per_graph, 5000, 0.8, nr_its, 0.05, 0.05, alpha_in_CE, 'zero-one', used, 0.6, sparsity, True)
+    # CE_glasso(X, obs_per_graph, 5000, 0.8, nr_its, 0.05, 0.01, alpha_in_CE, 'zero-one', used, 0.9, sparsity, True)
