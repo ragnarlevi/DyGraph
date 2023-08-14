@@ -827,3 +827,79 @@ def perturbed_node(theta_i, theta_i_1, U_i, U_i_1, kappa, rho, tol = 1e-8, max_i
 
 
     return Y1, Y2
+
+
+
+
+def update_w(Lw, w, rho, k, theta, LstarS, Y,y, i):
+    d = theta.shape[0]
+    LstarLw = L_star(Lw)
+    DstarDw = D_star(np.diag(Lw))
+    grad = LstarS - L_star(Y + rho * theta) + D_star(y - rho * k) + rho * (LstarLw + DstarDw)
+    eta = 1 / (2*rho * (2*d - 1))
+    w = w - eta * grad
+    w [w  < 0] = 0
+    Lw = L_op(w)
+
+    return Lw, w, i
+
+def update_theta_laplace(rho, J, Lw, Y, W1, W2, t, T, dynamic ):
+    # update Theta
+    if dynamic:
+        if t == 0:
+            rho = rho*2
+            At = (Lw+W1)/2.0 
+        elif t == T-1:
+            At = (Lw+W2)/2.0
+            rho = rho*2
+        else:
+            At = (Lw+W1+W2)/3.0
+            rho = rho*3
+    else:
+        At = Lw
+    
+    At = (At+At.T)/2.0
+    At = At+J
+
+    gamma, V =  np.linalg.eigh(rho * At - Y)
+    theta = np.dot(V,np.diag((gamma + np.sqrt(gamma**2 + 4 * rho)) / (2 * rho))).dot(V.T)- J
+    return theta, t
+
+
+def A_op(w):
+    d = int((1+np.sqrt(1+8*len(w)))/2)
+    A = np.zeros((d,d))
+    A[np.triu_indices(d,1)] = w
+    return  A+A.T
+
+def A_inv_op( A):
+    d = A.shape[0]
+    return A[np.triu_indices(d,1)]
+
+def L_inv_op( L):
+    d = L.shape[0]
+    return -L[np.triu_indices(d,1)]
+
+def L_op( w):
+    A = A_op(w)
+    return np.diag(np.sum(A, axis = 0)) - A
+
+def L_star( L):
+    d = L.shape[0]
+    w = np.zeros(int(d*(d-1)/2))
+    for i in range(1,d+1):
+        for j in range(1,i):
+            s = int(i-j + (j-1)*(2*d-j)/2)
+            w[s-1] = L[i-1,i-1]-L[i-1,j-1]-L[j-1,i-1]+L[j-1,j-1]
+
+    return w
+
+def D_star( a):
+    d = len(a)
+    p = np.zeros(int(d*(d-1)/2))
+    for i in range(1,d+1):
+        for j in range(1,i):
+            s = int(i-j + (j-1)*(2*d-j)/2)
+            p[s-1] = a[i-1]+a[j-1]
+
+    return p

@@ -7,3 +7,4 @@
 
 
 from CovReg.covreg import CovReg
+from CovReg.graphcovreg import GraphCovReg

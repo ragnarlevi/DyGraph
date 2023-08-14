@@ -189,7 +189,7 @@ def CE_glasso(X, w, N, tail_prob, nr_its, alpha, kappa, alpha_in_CE, metric, use
             'X':X, 'tail_prob':tail_prob, 'N':N, 'nr_its':nr_its, 'alpha':alpha, 'kappa':kappa,
         'alpha_in_CE':alpha_in_CE, 'metric':metric, 'used':used,'p':p, 'sigmas':sigmas, 'thetas_sim':thetas_sim, 'value_vals':value_vals, 's':s, 'sparsity':sparsity}
 
-        with open(f'data/GraphHypTest/unknown_single_sim_w{w}_{N}_{lik_type}_{alpha_in_CE}_{metric}_{used}_ew_s{s}_spar{sparsity}_tp{tail_prob}_a{alpha}_k{kappa}_ni{nr_its}_k{known}.pkl', 'wb') as handle:
+        with open(f'data/GraphHypTest/single_sim_w{w}_{N}_{lik_type}_{alpha_in_CE}_{metric}_{used}_ew_s{s}_spar{sparsity}_tp{tail_prob}_a{alpha}_k{kappa}_ni{nr_its}_k{known}.pkl', 'wb') as handle:
             pickle.dump(out_dict, handle, protocol=pickle.HIGHEST_PROTOCOL)
 
 

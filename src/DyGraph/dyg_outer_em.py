@@ -169,7 +169,6 @@ class dygl_outer_em(RootDygl):
         if self.nr_graphs< nr_workers:
             nr_workers = self.nr_graphs
 
-
         if not hasattr(self.kappa, "__len__"):
             self.kappa = np.array([self.kappa for _ in range(self.nr_graphs)])
         if not hasattr(self.lamda, "__len__"):
@@ -181,7 +180,7 @@ class dygl_outer_em(RootDygl):
         if not hasattr(self.kappa_gamma, "__len__"):
             self.kappa_gamma = np.array([self.kappa_gamma for _ in range(self.nr_graphs)])
 
-    
+
         while self.iteration < self.max_iter:
 
             # Perform E-step

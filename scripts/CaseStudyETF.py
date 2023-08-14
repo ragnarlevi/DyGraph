@@ -4,10 +4,6 @@ import numpy as np
 from scipy.stats import multivariate_normal, multivariate_t, chi2
 
 import networkx as nx
-import yfinance as yf
-import sys
-sys.path.insert(0, 'C:/Users/User/Code/DyGraph/src')
-sys.path.insert(0, 'C:/Users/User/Code/DyGraph')
 
 import DyGraph as dg
 import port_measures as pm
@@ -15,11 +11,10 @@ import tqdm
 import pickle
 from collections import defaultdict
 import scipy.integrate as integrate
-import yfinance as yf
-from multiprocessing.pool import Pool
 
 
-def log_lik(mean,cov, X, liktype, nu = None, prec = None, gamma = None, n = 10):
+
+def log_lik(mean,cov, X, liktype, nu = None, prec = None, gamma = None, n = 15):
 
     if liktype == "gaussian":
         lik = np.sum(multivariate_normal.logpdf(X, mean=mean, cov=cov, allow_singular=True))
@@ -138,7 +133,7 @@ def C_group(d, nu,m):
 
 def run(kappa_const, lik_type ,obs_per_graph, asset_type, temp):
     # parameters
-    l = 20
+    l = 60
     #base_kappa = 0.9
     nr_quad = 10
 
@@ -158,7 +153,7 @@ def run(kappa_const, lik_type ,obs_per_graph, asset_type, temp):
 
         name = f'{lik_type}_nr_quad_{nr_quad}_ind_30'
     else:
-        with open(f'data/case_study_etf/raw_etf.pkl', 'rb') as handle:
+        with open(f'data/raw_etf2.pkl', 'rb') as handle:
             data = pickle.load(handle)
 
         ticker_list = data['ticker_list']
@@ -166,22 +161,22 @@ def run(kappa_const, lik_type ,obs_per_graph, asset_type, temp):
         log_returns_scaled = data['log_returns_scaled']
         price = data['price']
         groups = data['groups']
-        name = f'{lik_type}_nr_quad_{nr_quad}_{asset_type}'
+        name = f'{lik_type}_nr_quad_{nr_quad}_{asset_type}_k_{kappa_const}'
 
 
-        max_iter = 1500
 
 
-    name = f'{name}_k_{kappa_const}_disjoint_{obs_per_graph}'
+
+    #name = f'{name}_k_{kappa_const}_disjoint_{obs_per_graph}'
 
     # 0 util, energy, materials, industrials
     # 1 communication, conusmer, consumer
     # health, real, fin. TECH
     
 
-    alphas = np.array([0.001, 0.01, 0.025, 0.05, 0.075, 0.1, 0.2, 0.4])[::-1]
-    time_index = range(500, 1600, l)
-    tol = 1e-6
+    alphas = np.array([0.01, 0.025, 0.05, 0.075, 0.1, 0.2, 0.4, 0.6, 0.8, 1.2])[::-1]
+    time_index = range(360,2980, l)
+    tol = 1e-3
   
     pbar = tqdm.tqdm(total = len(time_index), position=1)
 
@@ -231,19 +226,34 @@ def run(kappa_const, lik_type ,obs_per_graph, asset_type, temp):
 
 
 
-
-    if np.isin(lik_type, ['group-t', 'skew-group-t']):
-        with open(f'data/case_study_etf/t_nr_quad_10_etf_k_0.3_disjoint_50_element-wise.pkl', 'rb') as handle:
-            t_port = pickle.load(handle)
-        theta_init = t_port['thetas'][0][0]
-    else:
-        theta_init = None
+    # if np.isin(lik_type, ['group-t', 'skew-group-t']):
+    #     with open(f'data/t_nr_quad_{nr_quad}_{asset_type}_k_{kappa_const}_element-wise.pkl', 'rb') as handle:
+    #         t_port = pickle.load(handle)
+    #     theta_init = t_port['thetas'][0][0]
+    # else:
+    #     theta_init = None
+    theta_init = None
 
     pbar = tqdm.tqdm(total = len(time_index)*len(alphas), position=1)
     for alpha_cnt, alpha in enumerate(alphas):
 
-        for i in time_index:
-            lwr = np.max((i-500,0))
+        for time_cnt, i in enumerate(time_index):
+
+            if (time_cnt == 0) & (alpha_cnt == 0):
+                pass
+            elif (time_cnt ==0) & (alpha_cnt > 0):
+                theta_init = thetas[alpha_cnt-1][0].copy()
+            else:
+                nr_graphs_tmp = len(dg_opt.theta)
+                theta_init = np.array([np.identity(thetas[alpha_cnt][time_cnt-1].shape[1]) for _ in range(nr_graphs_tmp) ])
+                theta_init[:nr_graphs_tmp-1] = thetas[alpha_cnt][time_cnt-1][1:nr_graphs_tmp].copy()
+                theta_init[-1] = np.linalg.inv(np.cov(np.array(log_returns_scaled[lwr:i]-mu).T) + 0.001*np.identity(thetas[alpha_cnt][time_cnt-1].shape[1]))
+
+
+
+            
+
+            lwr = np.max((i-180,0))
             # nr_graphs = int(np.ceil((i-lwr-obs_per_graph)/l +1))
             nr_graphs = int(np.ceil(i-lwr/obs_per_graph))
             
@@ -257,21 +267,52 @@ def run(kappa_const, lik_type ,obs_per_graph, asset_type, temp):
             kappa_gamma = kappa
             
 
-
-            pbar.set_description(f"i {i}, alpha {alpha}")
+            pbar.set_description(f"i {i}, alpha {alpha}, kappa {kappa_const}")
             mu = np.mean(log_returns_scaled.iloc[lwr:i],axis = 0)
             
-            if np.isin(lik_type, ['group-t', 'skew-group-t']):               
-                dg_opt = dg.dygl_outer_em(obs_per_graph = obs_per_graph, max_iter = 30, lamda = obs_per_graph*alpha, kappa = obs_per_graph*kappa, kappa_gamma=obs_per_graph*kappa_gamma, 
-                                          tol = tol, X_type = 'disjoint', l = l)
-                dg_opt.fit(np.array(log_returns_scaled[lwr:i]-mu), nr_workers=12, temporal_penalty=temp, lik_type=lik_type, nu = None,verbose=True, 
-                       theta_init= theta_init, groups = groups, nr_quad = nr_quad, max_admm_iter = 200 ,p_node_tol= 1e-6, p_node_max_iter = 1000, bwr_xtol = 1e-7)
+            if np.isin(lik_type, ['group-t', 'skew-group-t']): 
+                max_iter = 30  
+                dg_opt = dg.dygl_outer_em(np.array(log_returns_scaled[lwr:i]-mu),  
+                                          obs_per_graph = obs_per_graph, 
+                                          max_iter = max_iter,
+                                            lamda = alpha,  
+                                            kappa = kappa, 
+                                            kappa_gamma = kappa_gamma,
+                                            tol = tol, 
+                                            lik_type = lik_type,
+                                            groups = groups
+                                            )
+                dg_opt.fit(temporal_penalty = temp, 
+                           nr_workers=10,
+                           max_admm_iter = 20,
+                           p_node_tol= 1e-6, 
+                           p_node_max_iter = 1000, 
+                           bwr_xtol = 1e-7,
+                           nr_quad = nr_quad,
+                           theta_init=theta_init,
+                           verbose = False
+                           )              
 
             else:
-                dg_opt = dg.dygl(obs_per_graph = obs_per_graph, max_iter = max_iter, lamda = obs_per_graph*alpha, kappa = obs_per_graph*kappa, kappa_gamma=obs_per_graph*kappa_gamma, 
-                            tol = tol, X_type = 'disjoint', l = l)
-                dg_opt.fit(np.array(log_returns_scaled[lwr:i]-mu), nr_workers=8, temporal_penalty=temp, lik_type=lik_type, nu = None,verbose=True, 
-                       theta_init= theta_init, groups = groups,nr_quad = nr_quad, p_node_tol= 1e-6, p_node_max_iter = 1000, bwr_xtol = 1e-7)
+                max_iter = 500 
+                dg_opt = dg.dygl_outer_em(np.array(log_returns_scaled[lwr:i]-mu),  
+                                          obs_per_graph = obs_per_graph, 
+                                          max_iter = max_iter,
+                                            lamda = alpha,  
+                                            kappa = kappa, 
+                                            kappa_gamma = kappa_gamma,
+                                            tol = tol, 
+                                            lik_type = lik_type
+                                            )
+                dg_opt.fit(temporal_penalty = temp, 
+                           max_admm_iter = 20,
+                           nr_workers=10,
+                           p_node_tol= 1e-6, 
+                           p_node_max_iter = 1000, 
+                           bwr_xtol = 1e-7,
+                           nr_quad = nr_quad,
+                           theta_init=theta_init,
+                           verbose = False)                           
 
 
             
@@ -291,8 +332,6 @@ def run(kappa_const, lik_type ,obs_per_graph, asset_type, temp):
             # Update precision matrix 
             precision_matrix = np.linalg.inv(S) 
 
-
-            
             # portfolio weights sharpe
             w_s, mu_s, var_s = pm.portfolio_opt(S,precision_matrix, mu, log_returns_scaled[lwr:i], type = 'sharpe')
 
@@ -317,6 +356,7 @@ def run(kappa_const, lik_type ,obs_per_graph, asset_type, temp):
             portfolio_m = np.dot(price.iloc[i:i + l],w_m)
             port_price_m[alpha_cnt].append(portfolio_m)
             log_returns_m = np.array(100*np.log(1+pd.DataFrame(portfolio_m).pct_change()).dropna())
+
             r_m = (portfolio_m[-1]-portfolio_m[0])/portfolio_m[0]
             sigma_m = np.std(log_returns_m)
             sharpe_m = pm.sharpe(r_m,sigma_m)
@@ -340,30 +380,47 @@ def run(kappa_const, lik_type ,obs_per_graph, asset_type, temp):
             fro_norms[alpha_cnt].append(dg_opt.fro_norm)
             mus[alpha_cnt].append(mu.copy())
 
+            # Calculate likelihood
             X =np.array(log_returns_scaled)
             lik_tmp = []
             w = obs_per_graph
             for j in range(len(dg_opt.theta)):
+                if lik_type == 't':
+                    cov_tmp = (dg_opt.nu[j]/(dg_opt.nu[j]-2))*np.linalg.inv(dg_opt.theta[j])
+                else:
+                    cov_tmp = np.linalg.inv(dg_opt.theta[j])
                 X_tmp = X[j*w:(j+1)*w]
-                lik_tmp.append(log_lik(np.zeros(dg_opt.theta[j].shape[1]) ,np.linalg.inv(dg_opt.theta[j]), X_tmp-np.array(mu), liktype = lik_type, prec =dg_opt.theta[j],  nu = dg_opt.nu[j], gamma = dg_opt.gamma[j]))
+                lik_tmp.append(log_lik(np.mean(X, axis = 0) ,
+                                       cov_tmp,  # this is not used for group-t skew-t
+                                       X_tmp, 
+                                       liktype = lik_type, 
+                                       prec =dg_opt.theta[j], 
+                                       nu = dg_opt.nu[j], 
+                                       gamma = dg_opt.gamma[j]))
 
-            likelihoods[alpha_cnt].append(np.sum(lik_tmp))
+            likelihoods[alpha_cnt].append(np.array(lik_tmp))
+            #print(lik_tmp)
+    
 
+            if lik_type == 't':
+                cov_tmp = (dg_opt.nu[j]/(dg_opt.nu[j]-2))*np.linalg.inv(dg_opt.theta[j])
+            else:
+                cov_tmp = np.linalg.inv(dg_opt.theta[j])
             future_likelihoods[alpha_cnt].append(log_lik(np.zeros(dg_opt.theta[-1].shape[1]) ,
-                                                  np.linalg.inv(dg_opt.theta[-1]), 
+                                                  cov_tmp, 
                                                   np.array(X[i:i+20]-np.array(mu)), 
                                                   liktype = lik_type, 
                                                   nu = dg_opt.nu[-1],
                                                   prec = dg_opt.theta[-1],
                                                   gamma = dg_opt.gamma[-1],
-                                                  n = 10))
+                                                  n = 15))
 
 
 
             nr_params_tmp = []
             for iii in range(len(dg_opt.theta)):
                 theta_t = dg_opt.theta[iii].copy()
-                theta_t[np.abs(theta_t)<1e-2] = 0
+                theta_t[np.abs(theta_t)<1e-3] = 0
                 if lik_type == 't':
                     nr_params_tmp.append(np.sum(theta_t[np.triu_indices(theta_t.shape[0],1)] != 0) + 1.0)
                 elif lik_type == 'group-t':
@@ -374,12 +431,12 @@ def run(kappa_const, lik_type ,obs_per_graph, asset_type, temp):
                     nr_params_tmp.append(np.sum(theta_t[np.triu_indices(theta_t.shape[0],1)] != 0))
 
             nr_params[alpha_cnt].append(nr_params_tmp)
-            print(nr_params[alpha_cnt])
+            # print(nr_params[alpha_cnt])
 
             AIC[alpha_cnt].append(2*np.sum(nr_params_tmp) -2*np.sum(lik_tmp) )
             future_AIC[alpha_cnt].append(2*(nr_params_tmp[-1] - future_likelihoods[alpha_cnt][-1]))
-            BIC[alpha_cnt].append(np.sum(nr_params_tmp)*np.log(500) -2*np.sum(lik_tmp) )
-            future_BIC[alpha_cnt].append(nr_params_tmp[-1]*np.log(20) - 2*future_likelihoods[alpha_cnt][-1])
+            BIC[alpha_cnt].append(np.sum(nr_params_tmp)*np.log(180) -2*np.sum(lik_tmp) )
+            future_BIC[alpha_cnt].append(nr_params_tmp[-1]*np.log(l) - 2*future_likelihoods[alpha_cnt][-1])
 
 
             # Guess next theta
@@ -399,7 +456,7 @@ def run(kappa_const, lik_type ,obs_per_graph, asset_type, temp):
                         'sharpes_m':sharpes_m,  'mdds_m':mdds_m,   'ws_m':ws_m, 'mus_m':mus_m, 'vars_m':vars_m, 'rs_m':rs_m, 
                         'omegas_m':omegas_m,'port_price_m':port_price_m, 'sigmas_m':sigmas_m}
             
-            with open(f'data/case_study_etf/{name}_{temp}.pkl', 'wb') as handle:
+            with open(f'data/{name}_{temp}2.pkl', 'wb') as handle:
                 pickle.dump(out_dict, handle, protocol=pickle.HIGHEST_PROTOCOL)
 
 
@@ -409,23 +466,26 @@ if __name__ == "__main__":
     # run(0.1, 't', 50, 'etf', 'element-wise')
     # run(0.4, 'skew-group-t', 50, 'etf', 'element-wise')
 
-    for n in [50]:
-        for k in [0.5]:
+    for n in [60]:
+        for k in [0.1, 0.2, 0.3, 0.4, 0.5]:
 
-            # run(k, 't', n, 'etf', 'element-wise')
-            # run(k, 'gaussian', n, 'etf', 'element-wise')
+            run(k, 't', n, 'etf', 'element-wise')
+            run(k, 'gaussian', n, 'etf', 'element-wise')
+            run(k, 'group-t', n, 'etf', 'element-wise')
+            run(k, 'skew-group-t', n, 'etf', 'element-wise')
             
-            # run(k, 'gaussian', n, 'etf', 'ridge')
-            # run(k, 't', n, 'etf', 'ridge')
+            run(k, 'gaussian', n, 'etf', 'ridge')
+            run(k, 't', n, 'etf', 'ridge')
 
-            # run(k, 'gaussian', n, 'etf', 'global-reconstruction')
-            # run(k, 't', n, 'etf', 'global-reconstruction')
+            run(k, 'gaussian', n, 'etf', 'global-reconstruction')
+            run(k, 't', n, 'etf', 'global-reconstruction')
 
             run(k, 'gaussian', n, 'etf', 'block-wise-reconstruction')
             run(k, 't', n, 'etf', 'block-wise-reconstruction')
 
             run(k, 'gaussian', n, 'etf', 'perturbed-node')
             run(k, 't', n, 'etf', 'perturbed-node')
+
 
 
 

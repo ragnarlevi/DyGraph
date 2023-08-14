@@ -1,30 +1,14 @@
 
-import requests
-import pandas as pd
+
 import numpy as np
-from sklearn.preprocessing import StandardScaler
-from scipy.stats import multivariate_normal
-import networkx as nx
-import yfinance as yf
-import sys
-sys.path.insert(0, 'C:/Users/User/Code/DyGraph')
-sys.path.insert(0, 'C:/Users/User/Code/DyGraph/src')
-
-import DyGraph as dg
-import port_measures as pm
-import matplotlib.pyplot as plt
-import tqdm
-import scipy
 from scipy.optimize import minimize
-from sklearn import linear_model
-
 
 
 
 class CovReg():
 
     
-    def __init__(self, Y, alpha, max_iter = 100, tol = 1e-6) -> None:
+    def __init__(self, Y, alpha, max_iter = 100, tol = 1e-6, do_all_iter = False) -> None:
 
         self.Y = Y
         self.max_iter = max_iter
@@ -34,6 +18,9 @@ class CovReg():
         self.n = Y.shape[0]
 
         self.alpha = self.n*alpha
+
+        self.with_graph = False
+        self.do_all_iter = do_all_iter
 
 
 
@@ -47,142 +34,7 @@ class CovReg():
         t_0 = Y.T-np.dot(C,X.T)
         grad = (-0.5*np.dot(t_0,X)).flatten()
         return obj, np.concatenate((grad + alpha , - grad + alpha ), axis=None)
-    
-    @staticmethod
-    def secant_objective(param, r, m, v, Y, psi_inv, B,A, K_inv, omega, H_sq_inv):
-
         
-        n = Y.shape[0]
-        d = Y.shape[1]
-
-        M = np.diag(m)
-        S = np.diag(v)
-
-
-        Y_tilde = np.vstack((Y, np.zeros((n,d))))
-
-        F = np.reshape(param,(n,r), order='F')
-    
-        F_tilde =  np.vstack((np.hstack((F, m[:,np.newaxis]*F)),np.hstack((np.zeros((n, r)),v[:,np.newaxis]*F))))
-        C = np.hstack((A,B))
-
-        obj = 0.5*np.trace(np.dot((Y_tilde-np.dot(F_tilde, C.T)).T, (Y_tilde-np.dot(F_tilde, C.T))).dot(psi_inv))  + 0.5*omega*np.trace(np.dot(K_inv, F).dot(H_sq_inv).dot(F.T))
-        
-        grad1 = -np.dot(M,Y).dot(psi_inv).dot(B) -np.dot(Y,psi_inv).dot(A) 
-        grad2 = np.dot(F,A.T).dot(psi_inv).dot(A)
-        grad3 = np.dot(M, F).dot(A.T).dot(psi_inv).dot(B) + np.dot(M, F).dot(B.T).dot(psi_inv).dot(A)
-        grad4 = np.dot(M**2+S**2,F).dot(B.T).dot(psi_inv).dot(B)
-
-        grad = (grad1 +grad2+grad3+grad4+ omega*np.dot(K_inv, F).dot(H_sq_inv)).flatten(order='F')
-
-        return obj, grad
-        
-
-    def F_secant_optim(self,B, A, m,v, psi_inv):
-
-
-    
-        H_sq = np.dot(self.H,self.H)
-        H_sq_inv = np.linalg.inv(H_sq + 0.001*np.identity(self.r2))
-
-
-    
-        out = minimize(self.secant_objective, np.ones(self.n*self.r), args = (self.r, m, v, self.Y, psi_inv, B,A, self.K_inv, self.omega, H_sq_inv), jac=True, method= 'L-BFGS-B')
-
-
-        return np.reshape(out.x,(self.n,self.r), order='F')
-
-
-    def F_ls(self, A, psi_inv):
-
-        A_quad = np.dot(A.T, psi_inv).dot(A)
-        F_ls_no_graph = np.dot(self.Y, psi_inv).dot(A).dot(np.linalg.pinv(A_quad)+0.001*np.identity(A.shape[1])) 
-
-
-        return F_ls_no_graph
-
-
-    
-
-    def F_ls_reg(self, A, psi_inv):
-
-        I_n = np.identity(self.n)
-
-
-        A_quad = np.dot(A.T, psi_inv).dot(A)
-
-        mat = np.kron(A_quad, I_n) + np.kron(self.H_sq_inv,self.K_inv)
-        l, u = np.linalg.eigh(mat)
-        if self.type_reg == 'Tikanov':
-            inv_mat = np.dot(u, np.diag(1/(l+self.reg))).dot(u.T)
-        elif self.type_reg == 'spectral':
-            l_inv = 1/l
-            l_inv[l<self.reg] = 0
-            inv_mat = np.dot(u, np.diag(l_inv)).dot(u.T)
-
-        F = np.dot(inv_mat, np.dot(self.Y, psi_inv).dot(A).flatten(order='F'))
-        
-        return np.reshape(F,(self.n,self.r), order='F')
-
-
-
-    def F_cov_no_graph(self,  B, m,v,psi_inv):
-
-        M = np.diag(m)
-        S = np.diag(v)
-        inv_em = np.linalg.inv(M**2+S**2)
-        B_quad = np.dot(B.T, psi_inv).dot(B)
-
-        F = np.dot(inv_em, M).dot(self.Y).dot(psi_inv).dot(B).dot(np.linalg.pinv(B_quad))
-        return F
-
-
-    def F_cov_reg(self,  B, m,v, psi_inv ):
-        M = np.diag(m)
-        S = np.diag(v)
-
-        B_quad = np.dot(B.T, psi_inv).dot(B)
-
-        # mat = np.kron(H_sq_inv+0.1*np.identity(r), K_inv+0.1*np.identity(n)) + np.kron(A_quad+0.1*np.identity(r), np.identity(n))
-        mat = np.kron(self.H_sq_inv, self.K_inv) + np.kron(B_quad, M**2+S**2)
-        l, u = np.linalg.eigh(mat)
-        if self.type_reg == 'Tikanov':
-            inv_mat = np.dot(u, np.diag(1/(l+self.reg))).dot(u.T)
-        elif self.type_reg == 'spectral':
-            l_inv = 1/l
-            l_inv[l<self.reg] = 0
-            inv_mat = np.dot(u, np.diag(l_inv)).dot(u.T)
-        F_ls = np.dot( inv_mat, np.dot(M, self.Y).dot(psi_inv).dot(B).flatten(order='F'))
-        F_ls = np.reshape(F_ls,(self.n,self.r), order='F')
-
-        return F_ls
-
-
-    def F_direct(self,B, A, m,v, psi_inv):
-
-        I_n = np.identity(self.n)
-        M = np.diag(m)
-        S = np.diag(v)
-
-
-        B_quad = np.dot(B.T, psi_inv).dot(B)
-        A_quad = np.dot(A.T, psi_inv).dot(A)
-        AB_quad = np.dot(A.T, psi_inv).dot(B)
-
-        mat = np.kron(A_quad, I_n) + np.kron(AB_quad+AB_quad.T, M) + np.kron(B_quad, M**2+S**2) + np.kron(self.H_sq_inv,self.K_inv)
-        l, u = np.linalg.eigh(mat)
-        if self.type_reg == 'Tikanov':
-            inv_mat = np.dot(u, np.diag(1/(l+self.reg))).dot(u.T)
-        elif self.type_reg == 'spectral':
-            l_inv = 1/l
-            l_inv[l<self.reg] = 0
-            inv_mat = np.dot(u, np.diag(l_inv)).dot(u.T)
-
-        F = np.dot(inv_mat, (np.dot(self.Y, psi_inv).dot(A) + np.dot(M, self.Y).dot(psi_inv).dot(B)).flatten(order='F'))
-        return np.reshape(F,(self.n,self.r), order='F')
-
-
-
 
     def filter_x(self):
         pass
@@ -194,20 +46,128 @@ class CovReg():
         pass
 
 
+    def one_iteration(self, Psi_pre_inv, psi, C_pre, c, Y_tilde, X1 = None, X2 = None, F_pre = None, with_mean = True):
+
+
+        v = np.ones(self.n)
+        m = np.ones(self.n)
+
+
+        if with_mean:
+            A = C_pre[:,:self.r1]
+            B = C_pre[:,self.r1:]
+        else:
+            A = 0
+            B = C_pre
+
+
+        C_tmp = C_pre.flatten()
+        C_vec = np.zeros(2*(self.r1+self.r2)*self.d)
+        C_vec[:(self.r1+self.r2)*self.d] = np.abs(C_tmp) * (C_tmp>0)
+        C_vec[(self.r1+self.r2)*self.d:] = np.abs(C_tmp) * (C_tmp<0)
+
+
+        # E-step
+        for i in range(self.n):
+            if with_mean & (not self.with_graph):
+                x_i = np.hstack((X1[i], X2[i]))
+                v[i] = (1+np.dot(x_i.T, C_pre.T).dot(Psi_pre_inv).dot(C_pre).dot(x_i)) ** (-1)
+                m[i] = v[i]*np.dot((self.Y[i]-np.dot(A, X1[i])).T,Psi_pre_inv).dot(C_pre).dot(x_i)
+            elif (not with_mean) & (not self.with_graph):
+                x_i = X2[i]
+                v[i] = (1+np.dot(x_i.T, C_pre.T).dot(Psi_pre_inv).dot(C_pre).dot(x_i)) ** (-1)
+                m[i] = v[i]*np.dot((self.Y[i]-0).T,Psi_pre_inv).dot(C_pre).dot(x_i)
+            elif with_mean & self.with_graph:
+                x_i = np.hstack((F_pre[i], F_pre[i]))
+                v[i] = (1+np.dot(x_i.T, C_pre.T).dot(Psi_pre_inv).dot(C_pre).dot(x_i)) ** (-1)
+                m[i] = v[i]*np.dot((self.Y[i]-np.dot(A, F_pre[i])).T,Psi_pre_inv).dot(C_pre).dot(x_i)
+            elif (not with_mean) & self.with_graph:
+                x_i = F_pre[i]
+                v[i] = (1+np.dot(x_i.T, C_pre.T).dot(Psi_pre_inv).dot(C_pre).dot(x_i)) ** (-1)
+                m[i] = v[i]*np.dot((self.Y[i]-0).T,Psi_pre_inv).dot(C_pre).dot(x_i)
+
+        
+        # M-step
+        if with_mean & (not self.with_graph):
+            X_tilde =  np.vstack((np.hstack((X1, m[:,np.newaxis]*X2)),np.hstack((np.zeros((self.n, self.r1)),v[:,np.newaxis]*X2))))
+        elif (not with_mean) & (not self.with_graph):
+            X_tilde =  np.vstack((m[:,np.newaxis]*X2,v[:,np.newaxis]*X2))
+        elif with_mean & self.with_graph:
+            X_tilde =  np.vstack((np.hstack((F_pre, m[:,np.newaxis]*F_pre)),np.hstack((np.zeros((self.n, self.r1)),v[:,np.newaxis]*F_pre))))
+        elif (not with_mean) & self.with_graph:
+            X_tilde =  np.vstack((m[:,np.newaxis]*F_pre,v[:,np.newaxis]*F_pre))
+
+
+        if c is None:
+            if self.alpha != 0:
+                out = minimize(self.lasso_objective, C_vec, args = (X_tilde, Y_tilde, Psi_pre_inv,self.d,self.r1+self.r2, self.alpha), method='L-BFGS-B', jac=True, bounds = [(0.0,None)]*(2*(self.r1+self.r2)*self.d))
+                C_vec = out.x
+                C = np.reshape(out.x[:(self.r1+self.r2)*self.d] - out.x[(self.r1+self.r2)*self.d:], (self.d,self.r1+self.r2))
+            else:
+                C = np.dot(Y_tilde.T, X_tilde).dot(np.linalg.inv(np.dot(X_tilde.T,X_tilde) + 0.001*np.identity(self.r1+self.r2)))
+        else:
+            C = c
+
+        #inv_m = np.linalg.inv(np.dot(X_tilde.T, X_tilde))
+        #B = np.dot(Y_tilde.T,X_tilde).dot(inv_m)
+
+        if psi is None:
+            Psi_est = np.cov((Y_tilde-np.dot(X_tilde,C.T)).T)*(self.n-1)/self.n
+        else:
+            Psi_est = psi
+
+
+        if with_mean:
+            A = C[:,:self.r1]
+            B = C[:,self.r1:]
+        else:
+            A = 0
+            B = C
+
+
+        if self.with_graph:
+            if (self.F_method == 'direct') & with_mean:
+                F = self.F_direct( B, A, m,v, Psi_pre_inv)
+            elif (self.F_method == 'direct') & (not with_mean):
+                F = self.F_direct_cov_only( B, m,v, Psi_pre_inv)
+            elif (self.F_method == 'secant') & with_mean:
+                F = self.F_secant_optim(B, A, m,v, Psi_pre_inv)
+            elif (self.F_method == 'secant') & (not with_mean):
+                F = self.F_secant_optim(B, np.zeros((self.d, self.r)), m,v, Psi_pre_inv)
+            else:
+                raise ValueError(f"F_method {self.F_method} not known")
+        else:
+            F = None
+
+
+        if self.with_graph:
+            tol_i = (np.linalg.norm(C-C_pre) + np.linalg.norm(F-F_pre))/(np.linalg.norm(F_pre) + np.linalg.norm(C_pre))
+        else:
+            tol_i = np.linalg.norm(C-C_pre)/np.linalg.norm(C_pre)
+
+
+        return C, Psi_est, F, tol_i
+
+
+
+
+
+
     def fit_hoff_b_only(self, X2, psi = None, X_filter = None)-> None:
         """
         Hoff only fit covariance term
         """
 
-
+        c = None
 
         self.r2 = X2.shape[1]
-        
+        self.r1 = 0
         
         Y_tilde = np.vstack((self.Y, np.zeros((self.n,self.d))))
 
         if psi is None:
             Psi_pre = np.identity(self.d)
+            Psi_pre_inv = np.linalg.inv(Psi_pre)
         else:
             Psi_pre = psi
             Psi_pre_inv = np.linalg.inv(Psi_pre)
@@ -216,49 +176,27 @@ class CovReg():
         m = np.ones(self.n)
         X_tilde =  np.vstack((m[:,np.newaxis]*X2,v[:,np.newaxis]*X2))
         # The solution is evry sensitive to the inital matrix, the l2 regularization for B_pre effects alpha
+        
         C_pre = np.ones((self.d, self.r2))# np.dot(Y_tilde.T, X_tilde).dot(np.linalg.inv(np.dot(X_tilde.T, X_tilde) + alpha*np.identity(r)))
-
-
-        C_tmp = C_pre.flatten()
-        C_vec = np.zeros(2*(self.r2)*self.d)
-        C_vec[:(self.r2)*self.d] = np.abs(C_tmp) * (C_tmp>0)
-        C_vec[(self.r2)*self.d:] = np.abs(C_tmp) * (C_tmp<0)
         
         self.iteration = 0
+        self.tol_vec = np.zeros(self.max_iter)
         while self.iteration <self.max_iter:
-            if psi is None:
-                Psi_pre_inv = np.linalg.inv(Psi_pre)
 
-            # E-step
-            for i in range(self.n):
-                x_i = X2[i]
-                v[i] = (1+np.dot(x_i.T, C_pre.T).dot(Psi_pre_inv).dot(C_pre).dot(x_i)) ** (-1)
-                m[i] = v[i]*np.dot((self.Y[i]-0).T,Psi_pre_inv).dot(C_pre).dot(x_i)
+            C, Psi_est, _, tol_i = self.one_iteration(np.linalg.inv(Psi_pre_inv), psi, C_pre, c, Y_tilde, X1 = None, X2 = X2, with_mean = False)
+            self.tol_vec[self.iteration] = tol_i
 
-            X_tilde =  np.vstack((m[:,np.newaxis]*X2,v[:,np.newaxis]*X2))
-            # M-step
-            out = minimize(self.lasso_objective, C_vec, args = (X_tilde, Y_tilde, Psi_pre_inv,self.d,self.r2, self.alpha), method='L-BFGS-B', jac=True, bounds = [(0.0,None)]*(2*(self.r2)*self.d))
-            C_vec = out.x
-            C = np.reshape(out.x[:(self.r2)*self.d] - out.x[(self.r2)*self.d:], (self.d,self.r2))
-            #inv_m = np.linalg.inv(np.dot(X_tilde.T, X_tilde))
-            #B = np.dot(Y_tilde.T,X_tilde).dot(inv_m)
-
-            if psi is None:
-                Psi_est = np.cov((Y_tilde-np.dot(X_tilde,C.T)).T)*(self.n-1)/self.n
-            else:
-                Psi_est = psi
-    
-            if np.linalg.norm(C-C_pre)<self.tol:
+            if (tol_i<self.tol) & (not self.do_all_iter):
                 break
+            
+            self.iteration+=1
 
             if psi is None:
                 Psi_pre = Psi_est.copy()
 
             C_pre = C.copy()
-            self.iteration+=1
 
-
-        self.A = 0
+        self.A = None
         self.B = C
         self.Psi = Psi_est
 
@@ -266,16 +204,16 @@ class CovReg():
         """
         Hoff with lasso
         """
+
+        c = None
         self.r1 = X1.shape[1]
         self.r2 = X2.shape[1]
 
-
         Y_tilde = np.vstack((self.Y, np.zeros((self.n,self.d))))
-
-
 
         if psi is None:
             Psi_pre = np.identity(self.d)
+            Psi_pre_inv = np.linalg.inv(Psi_pre)
         else:
             Psi_pre = psi
             Psi_pre_inv = np.linalg.inv(Psi_pre)
@@ -285,226 +223,82 @@ class CovReg():
         X_tilde =  np.vstack((np.hstack((X1, m[:,np.newaxis]*X2)),np.hstack((np.zeros((self.n, self.r1)),v[:,np.newaxis]*X2))))
         # The solution is evry sensitive to the inital matrix, the l2 regularization for B_pre effects alpha
         C_pre = np.ones((self.d, self.r1+self.r2))# np.dot(Y_tilde.T, X_tilde).dot(np.linalg.inv(np.dot(X_tilde.T, X_tilde) + alpha*np.identity(r)))
-
-
-
-        C_tmp = C_pre.flatten()
-        C_vec = np.zeros(2*(self.r1+self.r2)*self.d)
-        C_vec[:(self.r1+self.r2)*self.d] = np.abs(C_tmp) * (C_tmp>0)
-        C_vec[(self.r1+self.r2)*self.d:] = np.abs(C_tmp) * (C_tmp<0)
         
         self.iteration = 0
+        self.tol_vec = np.zeros(self.max_iter)
         while self.iteration <self.max_iter:
-            if psi is None:
-                Psi_pre_inv = np.linalg.inv(Psi_pre)
-
-            # E-step
-            A = C_pre[:,:self.r1]
-            for i in range(self.n):
-                x_i = np.hstack((X1[i], X2[i]))
-                v[i] = (1+np.dot(x_i.T, C_pre.T).dot(Psi_pre_inv).dot(C_pre).dot(x_i)) ** (-1)
-                m[i] = v[i]*np.dot((self.Y[i]-np.dot(A, X1[i])).T,Psi_pre_inv).dot(C_pre).dot(x_i)
-
-            X_tilde =  np.vstack((np.hstack((X1, m[:,np.newaxis]*X2)),np.hstack((np.zeros((self.n, self.r1)),v[:,np.newaxis]*X2))))
-            # M-step
-            out = minimize(self.lasso_objective, C_vec, args = (X_tilde, Y_tilde, Psi_pre_inv,self.d,self.r1+self.r2, self.alpha), method='L-BFGS-B', jac=True, bounds = [(0.0,None)]*(2*(self.r1+self.r2)*self.d))
-            C_vec = out.x
-            C = np.reshape(out.x[:(self.r1+self.r2)*self.d] - out.x[(self.r1+self.r2)*self.d:], (self.d,self.r1+self.r2))
-            #inv_m = np.linalg.inv(np.dot(X_tilde.T, X_tilde))
-            #B = np.dot(Y_tilde.T,X_tilde).dot(inv_m)
-
-            if psi is None:
-                Psi_est = np.cov((Y_tilde-np.dot(X_tilde,C.T)).T)*(self.n-1)/self.n
-            else:
-                Psi_est = psi
-    
-            if np.linalg.norm(C-C_pre)<self.tol:
+            C, Psi_est, _, tol_i = self.one_iteration(np.linalg.inv(Psi_pre_inv), psi, C_pre, c, Y_tilde, X1 = X1, X2 = X2, with_mean = True)
+            self.tol_vec[self.iteration] = tol_i
+            if (tol_i<self.tol) & (not self.do_all_iter):
                 break
+            
+            self.iteration+=1
 
             if psi is None:
                 Psi_pre = Psi_est.copy()
 
             C_pre = C.copy()
-        
-            #print(scipy.linalg.norm(B_pre-B_true))
-            self.iteration+=1
-
 
         self.A = C[:,:self.r1]
         self.B = C[:,self.r1:]
         self.Psi = Psi_est
 
 
-    def fit_ggp_a_only(self, psi = None, X_filter = None)-> None:
-        """
-        Graph GP only fit mean term
-        """
-        pass
-    def fit_ggp_b_only(self, r, psi, F_start = None, X_filter = None, reg = None, reg_type = None)-> None:
-        """
-        Graph GP only fit covariance term
-        """
+    def CCC(self, X, nr_its = 100, tol = 1e-6, mean_vec = np.zeros(R.shape[1])):
+        def log_lik_cc(param, x, R, R_inv, sigma_start, mean_vec):
+            d = R.shape[0]
+            T = x.shape[0]
+            alpha_0 = param[0]
+            alpha_1 = param[1:(d+1)]
+            beta_1 = param[-1]#param[-1]
+            sigmas = np.zeros((T+1))
+            sigmas[0] = sigma_start
+            for t in range(T):
+                sigmas[t+1] = alpha_0 + np.inner(alpha_1,x[t])**2 + beta_1*sigmas[t]
+            
+            Ms = np.einsum('nj,jk,nk->n', (x-mean_vec), R_inv, (x-mean_vec)  )
 
-         graph dæmi
+            obj = 0.5*d*np.sum(np.log(sigmas[1:T])) + 0.5*np.sum(Ms[1:]*np.reciprocal(sigmas[1:T])) # minimize this
+
+            grad_2 = np.zeros(d)
+            for t in range(1,T):
+                grad_2 += d*np.reciprocal(sigmas[t])*np.inner(alpha_1, x[t-1])*x[t-1] - Ms[t]*np.reciprocal(sigmas[t])**2*np.inner(alpha_1, x[t-1])*x[t-1]
+
+            
+
+            grad_1 = 0.5*d*np.sum(np.reciprocal(sigmas[1:T])) - 0.5*np.sum(Ms[1:]* np.reciprocal(sigmas[1:T])**2 )  # grad w.r.t. alpha_0
+            #grad_2 = d*np.sum((np.reciprocal(sigmas[1:T]) * np.dot(x[1:],alpha_1))[:, np.newaxis] * x[1:], axis = 0) - np.sum((Ms[1:]* np.reciprocal(sigmas[1:T])**2 * np.dot(x[1:],alpha_1))[:,np.newaxis]*x[1:], axis=0 )  # grad w.r.t. alpha_1
+            grad_3 = 0.5*d*np.sum(np.reciprocal(sigmas[1:T])*sigmas[:T-1]) - 0.5*np.sum(Ms[1:]* np.reciprocal(sigmas[1:T])**2*sigmas[:T-1] )    # grad w.r.t. beta_1
+
+            return obj, np.concatenate(([grad_1], grad_2, [grad_3]))
         
-        
-        self.r  = r
-
-        if F_start is None:
-            F_pre = np.zeros((self.n, self.r))
-
-        Y_tilde = np.vstack((self.Y, np.zeros((self.n,self.d))))
 
 
-
-        if psi is None:
-            Psi_pre = np.identity(self.d)
-        else:
-            Psi_pre = psi
-            Psi_pre_inv = np.linalg.inv(Psi_pre)
-
-        v = np.ones(self.n)
-        m = np.ones(self.n)
-        # The solution is evry sensitive to the inital matrix, the l2 regularization for B_pre effects alpha
-        C_pre = np.ones((self.d, self.r))# np.dot(Y_tilde.T, X_tilde).dot(np.linalg.inv(np.dot(X_tilde.T, X_tilde) + alpha*np.identity(r)))
-
-        C_tmp = C_pre.flatten()
-        C_vec = np.zeros(2*(self.r)*self.d)
-        C_vec[:(self.r)*self.d] = np.abs(C_tmp) * (C_tmp>0)
-        C_vec[(self.r)*self.d:] = np.abs(C_tmp) * (C_tmp<0)
-        
-        self.iteration = 0
-        while self.iteration <self.max_iter:
-            if psi is None:
-                Psi_pre_inv = np.linalg.inv(Psi_pre)
-
-            # E-step
-            B = C_pre[:,self.r1:]
-            for i in range(self.n):
-                x_i = F_pre[i], F_pre[i]
-                v[i] = (1+np.dot(x_i.T, C_pre.T).dot(Psi_pre_inv).dot(C_pre).dot(x_i)) ** (-1)
-                m[i] = v[i]*np.dot((self.Y[i]-0).T,Psi_pre_inv).dot(C_pre).dot(x_i)
-
-            F_tilde =  np.vstack((m[:,np.newaxis]*F_pre, v[:,np.newaxis]*F_pre))
+        R_est = np.identity(d)
+        R_est_inv = np.linalg.inv(R_est)
 
 
-            # M-step
-            F = self.F_cov_reg(self,  B, m,v, Psi_pre_inv )
-            out = minimize(self.lasso_objective, C_vec, args = (F_tilde, Y_tilde, Psi_pre_inv,self.d,self.r, self.alpha), method='L-BFGS-B', jac=True, bounds = [(0.0,None)]*(2*(self.r1+self.r2)*self.d))
-            C_vec = out.x
-            C = np.reshape(out.x[:(self.r)*self.d] - out.x[(self.r)*self.d:], (self.d,2*self.r))
+        d = X.shape[1]
+        params =  np.ones(d+2)*0.1
+        params[0] = 0.2
+        params[-1] = 0.5
+        sigma_start = 0.1
+
+        T = X.shpae[0]
+        for it in range(nr_its):
+
+            out = minimize(log_lik_cc, params, args = (X, R_est, R_est_inv, sigma_start, mean_vec), jac=True, method = 'L-BFGS-B', bounds = [(1e-6,1)] + [(1e-6,1)] + [(-1,1)]*(d-1) + [(1e-6,1)]) #
+
+            old_params = params.copy()
+            params = out.x
+            sigmas = np.zeros((T+1))
+            sigmas[0] = sigma_start
+            for t in range(T):
+                sigmas[t+1] = params[0] + np.inner(params[1:(d+1)],x[t])**2 + params[-1]*sigmas[t]
 
 
-            if psi is None:
-                Psi_est = np.cov((Y_tilde-np.dot(F_tilde,C.T)).T)*(self.n-1)/self.n
-            else:
-                Psi_est = psi
-    
-            if np.linalg.norm(C-C_pre)<self.tol:
-                break
+            R_est = np.einsum('ki,kj->ij', X*(1/sigmas[:T, np.newaxis]), X)/T
+            R_est_inv = np.linalg.inv(R_est)
 
-            if psi is None:
-                Psi_pre = Psi_est.copy()
-
-            C_pre = C.copy()
-            F_pre = F.copy()
-        
-            #print(scipy.linalg.norm(B_pre-B_true))
-            self.iteration+=1
-
-
-        self.A = 0
-        self.B = C[:,self.r:]
-        self.F = F
-        self.Psi = Psi_est
-
-    def fit_ggp(self, r, psi, F_start = None, X_filter = None, reg = None, reg_type = None)-> None:
-        """
-        Graph GP only fit covariance term
-        """
-
-        graph dæmi
-
-        self.r  = r
-
-        if F_start is None:
-            F_pre = np.zeros((self.n, self.r))
-
-
-        Y_tilde = np.vstack((self.Y, np.zeros((self.n,self.d))))
-
-
-
-        if psi is None:
-            Psi_pre = np.identity(self.d)
-        else:
-            Psi_pre = psi
-            Psi_pre_inv = np.linalg.inv(Psi_pre)
-
-        v = np.ones(self.n)
-        m = np.ones(self.n)
-        # The solution is evry sensitive to the inital matrix, the l2 regularization for B_pre effects alpha
-        C_pre = np.ones((self.d, self.r+self.r))# np.dot(Y_tilde.T, X_tilde).dot(np.linalg.inv(np.dot(X_tilde.T, X_tilde) + alpha*np.identity(r)))
-
-        C_tmp = C_pre.flatten()
-        C_vec = np.zeros(2*(self.r+self.r)*self.d)
-        C_vec[:(self.r+self.r)*self.d] = np.abs(C_tmp) * (C_tmp>0)
-        C_vec[(self.r+self.r)*self.d:] = np.abs(C_tmp) * (C_tmp<0)
-        
-        self.iteration = 0
-        while self.iteration <self.max_iter:
-            if psi is None:
-                Psi_pre_inv = np.linalg.inv(Psi_pre)
-
-            # E-step
-            A = C_pre[:,:self.r]
-            B = C_pre[:,self.r:]
-            for i in range(self.n):
-                x_i = np.hstack((F_pre[i], F_pre[i]))
-                v[i] = (1+np.dot(x_i.T, C_pre.T).dot(Psi_pre_inv).dot(C_pre).dot(x_i)) ** (-1)
-                m[i] = v[i]*np.dot((self.Y[i]-np.dot(A, F_pre[i])).T,Psi_pre_inv).dot(C_pre).dot(x_i)
-
-            F_tilde =  np.vstack((np.hstack((F_pre, m[:,np.newaxis]*F_pre)),np.hstack((np.zeros((self.n, self.r1)),v[:,np.newaxis]*F_pre))))
-
-
-            # M-step
-            F = self.F_direct( B, A, m,v, Psi_pre_inv)
-            out = minimize(self.lasso_objective, C_vec, args = (F_tilde, Y_tilde, Psi_pre_inv,self.d,self.r, self.alpha), method='L-BFGS-B', jac=True, bounds = [(0.0,None)]*(2*(self.r1+self.r2)*self.d))
-            C_vec = out.x
-            C = np.reshape(out.x[:(2*self.r)*self.d] - out.x[(2*self.r)*self.d:], (self.d,2*self.r))
-
-
-            if psi is None:
-                Psi_est = np.cov((Y_tilde-np.dot(F_tilde,C.T)).T)*(self.n-1)/self.n
-            else:
-                Psi_est = psi
-    
-            if np.linalg.norm(C-C_pre)<self.tol:
-                break
-
-            if psi is None:
-                Psi_pre = Psi_est.copy()
-
-            C_pre = C.copy()
-            F_pre = F.copy()
-        
-            #print(scipy.linalg.norm(B_pre-B_true))
-            self.iteration+=1
-
-
-        self.A = C[:,:self.r]
-        self.B = C[:,self.r:]
-        self.F = F
-        self.Psi = Psi_est
-
-
-
-
-    
-
-
-
-
-
-
+            print(np.linalg.norm(params-old_params))
 

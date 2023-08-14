@@ -1,5 +1,5 @@
 
-import requests
+
 import pandas as pd
 import numpy as np
 from sklearn.preprocessing import StandardScaler
@@ -7,11 +7,8 @@ from scipy.stats import multivariate_normal
 import networkx as nx
 import yfinance as yf
 import sys
-sys.path.insert(0, 'C:/Users/User/Code/DyGraph')
 
-import DyGraph as dg
-import port_measures as pm
-import matplotlib.pyplot as plt
+import CovReg as cr
 import tqdm
 import scipy
 from scipy.optimize import minimize
@@ -352,69 +349,140 @@ def calc_shapley_value(B,X):
 if __name__ == '__main__':
 
 
-    
+    # test parameters
     ns = [50, 100, 500, 1000, 10000]
-    rs = [5, 10, 50]
-    ds = [5, 10, 50]
+    rs = [5, 10, 20, 50]
+    ds = [5, 10, 20, 50, 100]
     alphas = np.exp(-np.linspace(15,2,60))
 
-    B_dict = dict()
+    # Storetrue data and coef
     B_dict_true = dict()
-    Psi_dict = dict()
+    A_dict_true = dict()
     Xs_dict = {str(r): [] for r in rs}
-    Ys_dict = {str(r)+ '_' + str(d): [] for r in rs for d in ds}
+    Ys_dict_cov = {str(r)+ '_' + str(d): [] for r in rs for d in ds}
+    Ys_dict_meancov = {str(r)+ '_' + str(d): [] for r in rs for d in ds}
     val_y_true = dict()
-    value_function_dict = dict()
+
+    # Store estimation
+    B_dict_cov = dict()
+    B_dict_meancov = dict()
+    A_dict = dict()
+    Psi_dict_meancov = dict()
+    Psi_dict_cov = dict()
+    al_y_true = dict()
+    value_function_meancov_dict = dict()
+    value_function_cov_dict = dict()
+
+
+
     pbar = tqdm.tqdm(total = len(alphas)*len(ns)*len(ds)*len(rs))
 
+
+    rnd = np.random.RandomState(42)
+
+    # Generate X
     for r in rs:
         for n_cnt, n in enumerate(ns):
-            Xs_dict[str(r)].append(np.random.normal(loc = 0, scale = 1, size = (n,r)))
+            Xs_dict[str(r)].append(rnd.normal(loc = 0, scale = 1, size = (n,r)))
 
+    # Generate coef matrix
+    for r in rs:
+        for d in ds:
+            B_true = rnd.normal(loc = 0, scale = 1, size = (d,r))
+            B_true = B_true*(rnd.uniform(size = (d,r) ) <0.5)
+            B_dict_true[str(r) + '_'+str(d)] = B_true
+            A_true = rnd.normal(loc = 0, scale = 1, size = (d,r))
+            A_true = B_true*(rnd.uniform(size = (d,r) ) <0.5)
+            A_dict_true[str(r) + '_'+str(d)] = A_true
+            for i in range(d):
+                for j in range(i,d):
+                    value_function_meancov_dict[str(r) + '_'+str(d)] = np.zeros(shape = (d,d,len(ns), len(alphas), r))
+                    value_function_cov_dict[str(r) + '_'+str(d)] = np.zeros(shape = (d,d,len(ns), len(alphas), r))
+
+
+    # Generate observations VANTAR RÉTT B TRUES
 
     for r in rs:
         for d in ds:
+            for n_cnt, n in enumerate(ns):
+                B_tmp = B_dict_true[str(r) + '_'+str(d)].copy()
+                A_tmp = A_dict_true[str(r) + '_'+str(d)].copy()
 
-                
-            B_true = np.random.normal(loc = 0, scale = 1, size = (d,r))
-            B_true = B_true*(np.random.uniform(size = (d,r) ) <0.5)
-            B_dict_true[str(r) + '_'+str(d)] = B_true
-            for i in range(d):
-                for j in range(i,d):
-                    value_function_dict[str(r) + '_'+str(d)] = np.zeros(shape = (d,d,len(ns), len(alphas), r))
+                X = Xs_dict[str(r)][n_cnt].copy()
+                gamma = rnd.normal(loc = 0, scale = 1, size = (n))
+                epsilon = rnd.normal(loc = 0, scale = 1, size = (n,d))
+                Y_cov = gamma[:, np.newaxis]*np.dot(X, B_tmp.T) + epsilon
+                Ys_dict_cov[str(r) + '_'+str(d)].append(Y_cov.copy())
+                Y_meancov = np.dot(X, A_tmp.T) + gamma[:, np.newaxis]*np.dot(X, B_tmp.T) + epsilon
+                Ys_dict_meancov[str(r) + '_'+str(d)].append(Y_meancov.copy())
             
-            Bs = np.zeros(shape = (len(ns), len(alphas), d, r))
+
+
+
+    # Estimate each
+    for r in rs:
+        for d in ds:
+
+
+            B_tmp = B_dict_true[str(r) + '_'+str(d)].copy()
+            A_tmp = A_dict_true[str(r) + '_'+str(d)].copy()
+
+        
+            Bs_covmean = np.zeros(shape = (len(ns), len(alphas), d, r))
+            Bs_cov = np.zeros(shape = (len(ns), len(alphas), d, r))
+            As = np.zeros(shape = (len(ns), len(alphas), d, r))
             Psis = np.zeros(shape = (len(ns), len(alphas), d, d))
 
-            val_y_true[str(r) + '_'+str(d)] = np.dot(B_true, np.identity(r)).dot(B_true.T)
+            val_y_true[str(r) + '_'+str(d)] = np.dot(B_tmp, np.identity(r)).dot(B_tmp.T)
 
 
             for n_cnt, n in enumerate(ns):
-                X = Xs_dict[str(r)][n_cnt].copy()
-                gamma = np.random.normal(loc = 0, scale = 1, size = (n))
-                epsilon = np.random.normal(loc = 0, scale = 1, size = (n,d))
-                Y = gamma[:, np.newaxis]*np.dot(X, B_true.T) + epsilon
-                Ys_dict[str(r) + '_'+str(d)].append(Y.copy())
+
                 for alpha_cnt, alpha in enumerate(alphas):
-                    B, Psi = cov_regression(X,Y, alpha, 100 )
-                    #B, Psi = cov_regression_lasso(X,Y,alpha,100)
-                    Bs[n_cnt, alpha_cnt] = B.copy()
-                    Psis[n_cnt, alpha_cnt] = Psi.copy()
-                    
-                    shapleys = calc_shapley_value(B,X)
+                    pbar.set_description(f"r{r} d{d} n{n} a{alpha_cnt}")
+
+                    Y_tmp_mean_cov = Ys_dict_meancov[str(r) + '_'+str(d)][n_cnt].copy() 
+                    Y_tmp_cov = Ys_dict_cov[str(r) + '_'+str(d)][n_cnt].copy() 
+                    X_tmp = Xs_dict[str(r)][n_cnt].copy()
+
+                    # Estimate mean cov model
+                    cov = cr.CovReg( Y = Y_tmp_mean_cov, alpha = alpha, max_iter = 1000, tol = 1e-3)
+                    cov.fit_hoff(X1=X_tmp, X2 = X_tmp)
+                    Bs_covmean[n_cnt, alpha_cnt] = cov.B.copy()
+                    As[n_cnt, alpha_cnt] = cov.A.copy()
+                    shapleys = calc_shapley_value(cov.B,X_tmp)
                     for i in range(d):
                         for j in range(i,d):
-                            value_function_dict[str(r) + '_'+str(d)][i,j,n_cnt, alpha_cnt] = shapleys[str(i)+','+ str(j)]
+                            value_function_meancov_dict[str(r) + '_'+str(d)][i,j,n_cnt, alpha_cnt] = shapleys[str(i)+','+ str(j)].copy()
+                    B_dict_meancov[str(r) + '_'+str(d)] = Bs_covmean
+                    Psi_dict_meancov[str(r) + '_'+str(d)] = cov.Psi.copy()
 
-                    B_dict[str(r) + '_'+str(d)] = Bs
-                    Psi_dict[str(r) + '_'+str(d)] = Psis
+                    # Estimate cov model
+                    cov = cr.CovReg( Y = Y_tmp_cov, alpha = alpha, max_iter = 1000, tol = 1e-3)
+                    cov.fit_hoff_b_only(X2 = X_tmp)
+                    Bs_cov[n_cnt, alpha_cnt] = cov.B.copy()
+                    shapleys = calc_shapley_value(cov.B,X_tmp)
+                    for i in range(d):
+                        for j in range(i,d):
+                            value_function_cov_dict[str(r) + '_'+str(d)][i,j,n_cnt, alpha_cnt] = shapleys[str(i)+','+ str(j)].copy()
+                    B_dict_cov[str(r) + '_'+str(d)] = Bs_cov
+                    Psi_dict_cov[str(r) + '_'+str(d)] = cov.Psi.copy()
+
+
                     pbar.update()
 
-            out_dict = {'alphas':alphas, 'ns':ns, 'rs':rs, 'ds':ds, 'value_function_dict':value_function_dict, 'Xs_dict':Xs_dict, 'Ys_dict':Ys_dict,
-                        'B_dict':B_dict, 'B_dict_true':B_dict_true, 'Psi_dict':Psi_dict,'val_y_true':val_y_true}
-            import pickle
-            with open(f'data/Shapley/shapley7_nopsi.pkl', 'wb') as handle:
-                pickle.dump(out_dict, handle, protocol=pickle.HIGHEST_PROTOCOL)
+                out_dict = {'alphas':alphas, 'ns':ns, 'rs':rs, 'ds':ds, 
+                            'value_function_cov_dict':value_function_cov_dict, 'value_function_meancov_dict':value_function_meancov_dict, 
+                            'B_dict_cov':B_dict_cov, 'B_dict_meancov':B_dict_meancov,
+                            'Y_tmp_cov':Y_tmp_cov, 'Y_tmp_meancov':Y_tmp_mean_cov,
+                            'B_dict_true':B_dict_true, 'A_dict_true':A_dict_true,
+                            'Psi_dict_cov':Psi_dict_cov, 'Psi_dict_meancov':Psi_dict_meancov,
+                            'Xs_dict':Xs_dict, 
+                            'val_y_true':val_y_true}
+                
+                import pickle
+                with open(f'data/shapley.pkl', 'wb') as handle:
+                    pickle.dump(out_dict, handle, protocol=pickle.HIGHEST_PROTOCOL)
 
 
                     
