@@ -19,7 +19,7 @@ def update_gamma_static(G1, G2, theta):
 class sgl_outer_em(RootDygl):
 
 
-    def __init__(self, X,  max_iter, lamda, lik_type = 'gaussian', tol = 1e-6, groups = None) -> None:
+    def __init__(self, X,  max_iter, lamda, obs_per_graph = None, S=None, lik_type = 'gaussian', tol = 1e-6, groups = None) -> None:
 
         """
         Parameters
@@ -43,7 +43,13 @@ class sgl_outer_em(RootDygl):
         
         """
         
-        RootDygl.__init__(self, X, X.shape[0], max_iter, lamda, 0, 0, lik_type , tol, groups) 
+        if X is None:
+            obs_per_graph = obs_per_graph
+        else:
+            obs_per_graph = X.shape[0]
+
+        RootDygl.__init__(self, X, obs_per_graph, max_iter, lamda, 0, S, 0, lik_type , tol, groups) 
+        self.obs_per_graph = obs_per_graph
 
     def get_A(self):
         return self.z0[0] - self.u0[0]
@@ -56,7 +62,6 @@ class sgl_outer_em(RootDygl):
     def fit(self, nr_workers = 1,theta_init = None, verbose = True, nr_admm_iter = 1, **kwargs):
 
         self.nr_graphs = 1
-        self.obs_per_graph = self.n
         self.calc_S(kwargs.get("S_method", "empirical"))
         self.nr_admm_iter = nr_admm_iter
 
@@ -69,7 +74,7 @@ class sgl_outer_em(RootDygl):
             pbar1 = tqdm.tqdm(total = self.max_iter)
 
         # find obs_per_graph
-        self.obs_per_graph_used = [float(self.n)]
+        self.obs_per_graph_used = [float(self.obs_per_graph)]
   
         self.F_error = []
         self.iteration = 0
@@ -152,6 +157,10 @@ class sgl_outer_em(RootDygl):
 
         if self.iteration == self.max_iter:
             warnings.warn("Max iterations reached.")
+
+        # terminate pool 
+        if pool is not None:
+            pool.terminate()
 
         if verbose:
             pbar1.close()

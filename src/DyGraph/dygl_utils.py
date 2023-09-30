@@ -857,7 +857,6 @@ def update_theta_laplace(rho, J, Lw, Y, W1, W2, t, T, dynamic ):
             rho = rho*3
     else:
         At = Lw
-    
     At = (At+At.T)/2.0
     At = At+J
 

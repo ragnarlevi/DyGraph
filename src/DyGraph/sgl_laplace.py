@@ -3,7 +3,8 @@ import numpy as np
 from DyGraph.dygl_utils import t_em, update_w, A_op, A_inv_op, L_inv_op, L_op, L_star, D_star, update_theta_laplace
 from scipy.stats import kurtosis
 import warnings
-
+import tqdm
+from decimal import Decimal
 
 
 
@@ -82,25 +83,10 @@ class sgl_laplace():
 
 
 
-    def fit(self, **kwargs):
-
-
+    def fit(self, verbose = True, **kwargs):
         
-        if not hasattr(self.k, "__len__"):
-            self.k = np.array([self.k for _ in range(self.nr_graphs)])
-        # elif  (len(self.k.shape) == 1):
-            
-        #     if (len(self.k) == self.nr_graphs):
-        #         self.k = self.k
-        #     elif (len(self.k) == self.d):
-        #         self.k = np.array([self.k for _ in range(self.nr_graphs)])
-        #     else:
-        #         raise ValueError("shape of degree should be float, or equal to graph number, equal to graph node or  (nr_graphs, nr_nodes)")
-        # elif (len(self.k.shape) == 2):
-        #     if (self.k.shape[0]== self.nr_graphs) and (self.k.shape[1]== self.d):
-        #         self.k = self.k
-        #     else:
-        #         raise ValueError("shape of degree should be float, or equal to graph number, equal to graph node or  (nr_graphs, nr_nodes)")
+        # Make sure k is in the right form
+        self.transform_degree_param()
 
         if kwargs.get("nu", None) is None:
             self.nu = self.calc_nu(self.liktype)
@@ -110,19 +96,19 @@ class sgl_laplace():
 
         self.S = np.zeros((1, self.d, self.d))
         S_inv_single = np.zeros((1, self.d, self.d))
-        self.S[0] = np.corrcoef(self.X.T)
-        S_inv_single[0] = np.linalg.pinv(self.S[0])
+        self.S[0] = np.cov(self.X.T)
+        #S_inv_single[0] = np.linalg.pinv(self.S[0])
 
         nr_params = int(self.d*(self.d-1)/2)
 
         # number of nodes
         # w-initialization
         self.w = np.zeros((1, nr_params))
-        self.w[0] = L_inv_op(S_inv_single[0])
+        self.w[0] = np.random.uniform(nr_params) #L_inv_op(S_inv_single[0])
         self.w[0][self.w[0] < 0] = 0
 
         A0 = A_op(self.w[0])
-        A0 = A0/np.sum(A0, axis = 1)[:,None]
+        # A0 = A0/np.sum(A0, axis = 1)[:,None]
         self.w[0] = A_inv_op(A0)
 
         J = np.ones((self.d, self.d)) / self.d
@@ -143,6 +129,9 @@ class sgl_laplace():
 
         Lw_pre = self.Lw.copy()
         theta_pre = self.theta.copy()
+
+        if verbose:
+            pbar = tqdm.tqdm(total = self.max_iter)
 
         for i in range(self.max_iter): 
 
@@ -177,6 +166,10 @@ class sgl_laplace():
 
             self.iteration = i
             self.relnorm = np.linalg.norm(self.Lw[0] - Lw_pre[0], ord = "fro") / np.linalg.norm(Lw_pre[0], ord = "fro")
+
+            if verbose:   
+                pbar.set_description(f"Error {Decimal(self.relnorm):.2E}")
+                pbar.update()
 
             has_converged = (self.relnorm < self.tol) & (i > 1)
             if (has_converged):
@@ -215,6 +208,21 @@ class sgl_laplace():
         lwr, upr = self.get_X_index(i)
         return self.X[lwr:upr]
     
+
+    def transform_degree_param(self):
+                
+        if not hasattr(self.k, "__len__"):
+            self.k = np.array([self.k for _ in range(self.nr_graphs)])
+        else:
+
+            if len(self.k.shape) == 1:
+                assert self.k.shape[0] == self.d, "If degree is a vector is should equal number of nodes"
+                self.k = np.array([self.k for _ in range(self.nr_graphs)])
+            else:
+                assert (self.k.shape[0] == self.nr_graphs) and (self.k.shape[1] == self.d), "If degree is a matrix, the shape should be (number graphs, number of nodes)"
+
+
+        
 
     
     

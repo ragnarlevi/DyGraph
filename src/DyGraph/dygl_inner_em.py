@@ -12,10 +12,11 @@ from multiprocessing.pool import Pool
 from DyGraph.dygl_utils import theta_update, soft_threshold_odd, global_reconstruction, ridge_penalty, block_wise_reconstruction, perturbed_node
 from DyGraph.RootDygl import RootDygl
 
+
 class dygl_inner_em(RootDygl):
 
 
-    def __init__(self, X, obs_per_graph, max_iter, lamda, kappa, kappa_gamma = 0, lik_type = 'gaussian', tol = 1e-6, groups = None) -> None:
+    def __init__(self, X, obs_per_graph, max_iter, lamda, kappa, S= None, kappa_gamma = 0, lik_type = 'gaussian', tol = 1e-6, groups = None) -> None:
 
         """
         Parameters
@@ -47,7 +48,7 @@ class dygl_inner_em(RootDygl):
         
         """
         
-        RootDygl.__init__(self, X, obs_per_graph, max_iter, lamda, kappa, kappa_gamma, lik_type , tol,  groups) 
+        RootDygl.__init__(self, X, obs_per_graph, max_iter, lamda, kappa, S, kappa_gamma, lik_type , tol,  groups) 
 
 
 
@@ -112,8 +113,11 @@ class dygl_inner_em(RootDygl):
         # find obs_per_graph
         self.obs_per_graph_used = []
         for i in range(0, self.nr_graphs):
-            x_tmp = self.return_X(i)
-            self.obs_per_graph_used.append(x_tmp.shape[0])
+            if self.X is not None:
+                x_tmp = self.return_X(i)
+                self.obs_per_graph_used.append(x_tmp.shape[0])
+            else:
+                self.obs_per_graph_used.append(self.obs_per_graph)
 
     
 
@@ -150,6 +154,8 @@ class dygl_inner_em(RootDygl):
 
         if nr_workers >1:
             pool = Pool(nr_workers)
+        else:
+            pool = None
 
 
         if not hasattr(self.kappa, "__len__"):
@@ -272,6 +278,10 @@ class dygl_inner_em(RootDygl):
 
         if self.iteration == self.max_iter:
             warnings.warn("Max iterations reached.")
+        
+        # terminate pool 
+        if pool is not None:
+            pool.terminate()
 
         if verbose:
             pbar.close()

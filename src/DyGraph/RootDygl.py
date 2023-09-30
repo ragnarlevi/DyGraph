@@ -10,7 +10,7 @@ from scipy.stats import kurtosis
 
 class RootDygl():
 
-    def __init__(self, X, obs_per_graph, max_iter, lamda, kappa, kappa_gamma = 0, lik_type = 'gaussian', tol = 1e-6, groups = None) -> None:
+    def __init__(self, X, obs_per_graph, max_iter, lamda, kappa, S = None, kappa_gamma = 0, lik_type = 'gaussian', tol = 1e-6, groups = None) -> None:
 
         """
         Parameters
@@ -43,9 +43,15 @@ class RootDygl():
 
         assert obs_per_graph >= 0, "block size has to be bigger than 0"
 
-        self.X = np.array(X)
-        self.d = X.shape[1]
-        self.n = self.X.shape[0]
+        self.S = S
+        if X is not None:
+            self.X = np.array(X)
+            self.d = X.shape[1]
+            self.n = self.X.shape[0]
+        else:
+            self.X = None
+            self.d = self.S[0].shape[1]
+
         self.max_iter = max_iter
         self.lamda = lamda*obs_per_graph
         self.kappa = kappa*obs_per_graph
@@ -82,10 +88,12 @@ class RootDygl():
         """
         Calculate number of graphs
         """
-
-        if self.n % self.obs_per_graph:
-            warnings.warn("Observations per graph estimation not divisiable by total number of observations")
-        self.nr_graphs = int(np.ceil(self.n/self.obs_per_graph))
+        if self.X is not None:
+            if self.n % self.obs_per_graph:
+                warnings.warn("Observations per graph estimation not divisiable by total number of observations")
+            self.nr_graphs = int(np.ceil(self.n/self.obs_per_graph))
+        else:
+            self.nr_graphs = len(self.S)
 
         
 
@@ -115,7 +123,13 @@ class RootDygl():
     
     def return_X(self, i):
         lwr, upr = self.get_X_index(i)
-        return self.X[lwr:upr]
+
+        if self.X is None:
+            out = None
+        else:
+            out = self.X[lwr:upr].copy()
+  
+        return out
         
 
 
@@ -131,17 +145,18 @@ class RootDygl():
             data matrix
 
         """
-        self.S = []
+        if self.S is None:
+            self.S = []
 
-        if method == "empirical":
-            for i in range(self.nr_graphs):
-                x_tmp = self.return_X(i)
-                if x_tmp.shape[0] == 1:
-                    self.S.append(np.outer(x_tmp,x_tmp))
-                else:
-                    self.S.append( np.cov(x_tmp.T))
-        else:
-            raise ValueError(f"No method for S called {method}")
+            if method == "empirical":
+                for i in range(self.nr_graphs):
+                    x_tmp = self.return_X(i)
+                    if x_tmp.shape[0] == 1:
+                        self.S.append(np.outer(x_tmp,x_tmp))
+                    else:
+                        self.S.append( np.cov(x_tmp.T))
+            else:
+                raise ValueError(f"No method for S called {method}")
         
     def calc_nu(self,liktype):
 
