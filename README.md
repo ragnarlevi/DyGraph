@@ -6,9 +6,19 @@
 
 A package for dynamic graph estimation. 
 
+
+# Graph Methodology paper
+For the paper Portfolio Analytics via Dynamic Graph Learning: Modelling and Testing plase see the code in the folder `GraphMethodologyPaper`. `CaseStudies.ipynb` contains the figures and results. `CaseStudyETF.py` is a script that ran the dynamic models, `CaseStudyETF_static.py` is a script that ran the static models. Note that some function evaluations have been commented out. The group-t and skew group-t models will take a long time to run.
+
+# Installation
+
+To install the package please use:
+
 <code>pip install DyGraph </code>
 
 
+
+# Example
 
 
 ```python
