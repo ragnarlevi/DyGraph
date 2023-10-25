@@ -94,10 +94,43 @@ class dygl_inner_em(RootDygl):
         self.u4[1:] = self.u4[1:] + self.gamma[1:] - self.z4[1:]
 
 
+    def assert_kappa(self, temporal_penalty):
+        if not hasattr(self.kappa, "__len__"):
+            self.kappa = np.array([self.kappa for _ in range(self.nr_graphs-1)])
+        else:
+            self.kappa = np.array(self.kappa)
+            if self.kappa.shape[0] != self.nr_graphs-1:
+                raise ValueError("First kappa shape has to be equal to number of graphs minus one")
+            if len(self.kappa.shape) == 3:
+                if self.kappa.shape[1] != self.kappa.shape[2]:
+                    raise ValueError("If kappa contains a matrix for each time, it has to be a square matrix.")
+                if self.kappa.shape[1] != self.d:
+                    raise ValueError("The shape has to be equal to number of dimensions")
+                if not ((temporal_penalty == 'element-wise') or (temporal_penalty == 'ridge')):
+                    raise ValueError("If kappa contains a matrix for each time,the temporal penalty has to be either element-wise or ridge")
+                
+                if np.any([not np.allclose(self.kappa[i], self.kappa[i].T) for i in range(self.kappa.shape[0])]):
+                    raise ValueError("kappa_t has to be symmetric")
+            elif len(self.kappa.shape) == 2:
+                if self.kappa.shape[1] != self.d:
+                    raise ValueError("The shape has to be equal to number of dimensions")
+
+            else:
+                raise ValueError("Something wrong with kappa, has to be a numeric, or array of shape 1,2 or 3")
+    
+    def assert_lambda(self):
+        if not hasattr(self.lamda, "__len__"):
+            self.lamda = np.array([self.lamda for _ in range(self.nr_graphs)])  
+        elif  (len(self.lamda.shape) == 1) and (len(self.lamda) == self.nr_graphs):
+            self.lamda = self.lamda
+        elif (self.lamda.shape[0] == self.lamda.shape[1]) and len(self.lamda.shape) == 2:
+            self.lamda = np.array([self.lamda for _ in range(self.nr_graphs)])  
+                
 
 
-    def fit(self, temporal_penalty,theta_init = None,  nr_workers = 1, verbose = True,  **kwargs):
+    def fit(self, temporal_penalty, theta_init = None,  nr_workers = 1, verbose = True,  **kwargs):
 
+        self.temporal_penalty = temporal_penalty
         self.get_nr_graphs()
         self.calc_S(kwargs.get("S_method", "empirical"))
 
@@ -158,14 +191,10 @@ class dygl_inner_em(RootDygl):
             pool = None
 
 
-        if not hasattr(self.kappa, "__len__"):
-            self.kappa = np.array([self.kappa for _ in range(self.nr_graphs)])
-        if not hasattr(self.lamda, "__len__"):
-            self.lamda = np.array([self.lamda for _ in range(self.nr_graphs)])  
-        elif  (len(self.lamda.shape) == 1) and (len(self.lamda) == self.nr_graphs):
-            self.lamda = self.lamda
-        elif (self.lamda.shape[0] == self.lamda.shape[1]) and len(self.lamda.shape) == 2:
-            self.lamda = np.array([self.lamda for _ in range(self.nr_graphs)])  
+        self.assert_kappa(temporal_penalty)
+
+        self.assert_lambda()
+        
         if not hasattr(self.kappa_gamma, "__len__"):
             self.kappa_gamma = np.array([self.kappa_gamma for _ in range(self.nr_graphs)])
 

@@ -77,8 +77,6 @@ def generalized_skew_t( x, theta, nu, gamma = None, n = 10):
     return C*result[0]
 
 
-
-
 def D1_pair_integrand(u,theta,gamma,x,nu,i,j):
     """
     Integrand for element (i,j) in the matrix D_1 as defined in paper. Used by Group-T and generalized skew-T
@@ -169,8 +167,6 @@ def D1_EM(theta, x, nu,m, gamma, n = 5):
     return np.triu(D,0) + np.triu(D,1).T
 
 
-
-
 def D2_pair_integrand(u,theta,gamma,x,nu,i,j):
     """
     Integrand for element (i,j) in the matrix D_2 as defined in paper. Used for generalized skew-T estimation.
@@ -255,9 +251,6 @@ def D2_EM(theta, x, nu,m, gamma, n = 5):
                     D[i,j] = combination_calculated[combintaion]
 
     return D
-
-
-
 
 def D3_pair_integrand(u,theta,gamma,x,nu,i,j):
     """
@@ -346,8 +339,6 @@ def D3_EM(theta, x, nu,m,gamma,n = 5):
 
     return np.triu(D,0) + np.triu(D,1).T
 
-
-
 def Gaussian_update(S, A,  eta):
     """
     Update theta estimate according to gaussian likelihood
@@ -365,8 +356,6 @@ def Gaussian_update(S, A,  eta):
     D, Q = np.linalg.eig(M)
     diag_m = np.diag(D+np.sqrt(D**2 + 4.0/eta))
     return np.real(0.5*eta*np.dot(Q, diag_m).dot(Q.T))
-
-
 
 def Gaussian_update_outer_em(i, S, A,  eta):
     """
@@ -387,7 +376,6 @@ def Gaussian_update_outer_em(i, S, A,  eta):
     return np.real(0.5*eta*np.dot(Q, diag_m).dot(Q.T)), i
 
 
-
 def t_em(X, nu, theta):
     d = X.shape[1]
     theta_pre = theta
@@ -398,7 +386,6 @@ def t_em(X, nu, theta):
     tau = (nu + d)/(nu  + M)
     S = np.einsum('nj,n,nk->jk', x, tau, x)/float(x.shape[0])
     return S
-
 
 def group_em(X, nu, theta, groups, nr_quad, pool = None):
 
@@ -416,7 +403,6 @@ def group_em(X, nu, theta, groups, nr_quad, pool = None):
 
 
     return S
-
 
 def skew_group_em(X, nu, theta, gamma, groups, nr_quad, pool = None):
 
@@ -578,16 +564,11 @@ def inner_em(X,A, theta, nu, eta, gamma, A_gamma = None, rho_gamma = 0, groups =
     return theta_new, gamma_new
 
 
-
-
 def group_t_EM_iteration(x_i,theta_pre, nu, groups ,nr_quad):
     
 
     d = theta_pre.shape[1]
     return np.multiply(np.outer(x_i,x_i), D1_EM(theta_pre,x_i,nu,groups, np.zeros(d), nr_quad))
-
-
-
 
 def skew_group_t_EM_iteration(x_i,theta_pre, gamma_pre, nu, groups,nr_quad):
 
@@ -607,10 +588,6 @@ def skew_group_t_EM_iteration(x_i,theta_pre, gamma_pre, nu, groups,nr_quad):
 
     return S, G1, G2
  
-
-
-
-
 def theta_update(i, A, S , n_t, rho, rho_gamma, nr_graphs, A_gamma = None, groups = None, lik_type = "gaussian", X = None, nr_em_itr = 5, theta_init = None, gamma_init = None, nu = None, em_tol = 1e-3, 
     nr_quad = 5, pool = None):
     """
@@ -683,8 +660,6 @@ def theta_update(i, A, S , n_t, rho, rho_gamma, nr_graphs, A_gamma = None, group
 
     return theta, gamma, i
 
-
-
 def soft_threshold_odd( A, lamda):
 
     """
@@ -701,7 +676,6 @@ def soft_threshold_odd( A, lamda):
     
 
     return opt_m
-
 
 def global_reconstruction(A, eta):
     """
@@ -726,8 +700,6 @@ def global_reconstruction(A, eta):
 
     return E
 
-
-
 def ridge_penalty(A, eta):
     """
     Ridge/Laplacian penalty
@@ -741,7 +713,6 @@ def ridge_penalty(A, eta):
     """
 
     return A/(1.0+2.0*eta)
-
 
 def block_wise_reconstruction(A,  eta , xtol=1e-5):
     """
@@ -773,8 +744,6 @@ def block_wise_reconstruction(A,  eta , xtol=1e-5):
         E = A.copy()
 
     return E
-
-
 
 def perturbed_node(theta_i, theta_i_1, U_i, U_i_1, kappa, rho, tol = 1e-8, max_iter = 1000):
     """
@@ -828,9 +797,6 @@ def perturbed_node(theta_i, theta_i_1, U_i, U_i_1, kappa, rho, tol = 1e-8, max_i
 
     return Y1, Y2
 
-
-
-
 def update_w(Lw, w, rho, k, theta, LstarS, Y,y, i):
     d = theta.shape[0]
     LstarLw = L_star(Lw)
@@ -863,7 +829,6 @@ def update_theta_laplace(rho, J, Lw, Y, W1, W2, t, T, dynamic ):
     gamma, V =  np.linalg.eigh(rho * At - Y)
     theta = np.dot(V,np.diag((gamma + np.sqrt(gamma**2 + 4 * rho)) / (2 * rho))).dot(V.T)- J
     return theta, t
-
 
 def A_op(w):
     d = int((1+np.sqrt(1+8*len(w)))/2)

@@ -91,8 +91,7 @@ class sgl_inner_em(RootDygl):
 
 
         while self.iteration < self.max_iter:
-
-
+            
             self.theta[0], self.gamma[0], _ = theta_update(0,
                                                 self.get_A(), 
                                                 self.S[0], 

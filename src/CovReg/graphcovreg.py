@@ -69,8 +69,6 @@ class GraphCovReg(CovReg):
     
     def F_secant_optim(self,B, A, m,v, psi_inv):
 
-
-        
         
             out = minimize(self.secant_objective, np.ones(self.n*self.r), args = (self.r, m, v, self.Y, psi_inv, B,A, self.K_inv, self.omega, self.H_sq_inv), jac=True, method= 'L-BFGS-B')
 
@@ -85,8 +83,6 @@ class GraphCovReg(CovReg):
 
 
         return F_ls_no_graph
-
-
     
 
     def F_ls_reg(self, A, psi_inv):
@@ -108,8 +104,6 @@ class GraphCovReg(CovReg):
         F = np.dot(inv_mat, np.dot(self.Y, psi_inv).dot(A).flatten(order='F'))
         
         return np.reshape(F,(self.n,self.r), order='F')
-
-
 
     def F_cov_no_graph(self,  B, m,v,psi_inv):
 
@@ -291,9 +285,6 @@ class GraphCovReg(CovReg):
 
 
 
-
-
-
     def fit_ggp_b_only(self, psi = None, F_start = None,  reg = None, type_reg = None, F_method = 'direct', c = None)-> None:
         """
         Graph GP only fit covariance term
@@ -306,8 +297,6 @@ class GraphCovReg(CovReg):
 
         self.r1 = 0
         self.r2 = self.r
-
-        
 
         if F_start is None:
             F_pre = np.ones((self.n, self.r))

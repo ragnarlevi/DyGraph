@@ -8,3 +8,4 @@
 
 from CovReg.covreg import CovReg
 from CovReg.graphcovreg import GraphCovReg
+from CovReg.cole import cov_reg_given_mean, cubic_b_spline
