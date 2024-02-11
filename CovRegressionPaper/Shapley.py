@@ -413,8 +413,12 @@ if __name__ == '__main__':
 
 
         for alpha in tqdm.tqdm(alphas):
-            cov_direct = cr.CovReg( Y = y, alpha = alpha, max_iter = max_iter, tol = tol, method = method)
-            cov_direct.fit_hoff(X2 = x, verbose = True, C_init = 'cole', error = 'gaussian')
+            if method == 'cole':
+                cov_direct = cr.CovReg( Y = y, alpha = alpha, max_iter = max_iter, tol = tol, method = 'lasso')
+                cov_direct.fit_hoff_cole(X2 = x, error = 'gaussian', C_init = 'cole', verbose = True)
+            else:
+                cov_direct = cr.CovReg( Y = y, alpha = alpha, max_iter = max_iter, tol = tol, method = method)
+                cov_direct.fit_hoff(X2 = x, verbose = True, C_init = 'cole', error = 'gaussian')
 
             B_tmp = cov_direct.B.copy()
             B_est.append(cov_direct.B.copy())
@@ -451,9 +455,10 @@ if __name__ == '__main__':
         for r in np.array([5, 10, 20, 30, 40, 50, 100])[::-1]:
             print(r)
     
-            single_test(np.concatenate(([0], np.logspace(-8, -1, 70))), n, r, 'secant')
-            single_test(np.concatenate(([0], np.logspace(-8,-1, 70))),  n, r, 'secant_psi_identity')
-            single_test(np.concatenate(([0], np.logspace(-8,-1, 70))),  n, r, 'MultiTaskLasso')
+            # single_test(np.concatenate(([0], np.logspace(-8, -1, 70))), n, r, 'secant')
+            # single_test(np.concatenate(([0], np.logspace(-8,-1, 70))),  n, r, 'secant_psi_identity')
+            # single_test(np.concatenate(([0], np.logspace(-8,-1, 70))),  n, r, 'MultiTaskLasso')
+            single_test(np.concatenate(([0], np.logspace(-8,-1, 70))),  n, r, 'cole')
 
     scale = 1
     X, B_dict_true, A_dict_true, Ys_dict_cov = create_data(scale)
@@ -461,9 +466,10 @@ if __name__ == '__main__':
         for r in np.array([5, 10, 20, 30, 40, 50, 100])[::-1]:
             print(r)
 
-            single_test(np.concatenate(([0], np.logspace(-8, -1, 70))), n, r, 'secant')
-            single_test(np.concatenate(([0], np.logspace(-8,-1, 70))),  n, r, 'secant_psi_identity')
-            single_test(np.concatenate(([0], np.logspace(-8,-1, 70))),  n, r, 'MultiTaskLasso')
+            # single_test(np.concatenate(([0], np.logspace(-8, -1, 70))), n, r, 'secant')
+            # single_test(np.concatenate(([0], np.logspace(-8,-1, 70))),  n, r, 'secant_psi_identity')
+            # single_test(np.concatenate(([0], np.logspace(-8,-1, 70))),  n, r, 'MultiTaskLasso')
+            single_test(np.concatenate(([0], np.logspace(-8,-1, 70))),  n, r, 'cole')
 
 
     scale = 10
@@ -472,9 +478,10 @@ if __name__ == '__main__':
         for r in np.array([5, 10, 20, 30, 40, 50, 100])[::-1]:
             print(r)
     
-            single_test(np.concatenate(([0], np.logspace(-8, -1, 70))), n, r, 'secant')
-            single_test(np.concatenate(([0], np.logspace(-8,-1, 70))),  n, r, 'secant_psi_identity')
-            single_test(np.concatenate(([0], np.logspace(-8,-1, 70))),  n, r, 'MultiTaskLasso')
+            # single_test(np.concatenate(([0], np.logspace(-8, -1, 70))), n, r, 'secant')
+            # single_test(np.concatenate(([0], np.logspace(-8,-1, 70))),  n, r, 'secant_psi_identity')
+            # single_test(np.concatenate(([0], np.logspace(-8,-1, 70))),  n, r, 'MultiTaskLasso')
+            single_test(np.concatenate(([0], np.logspace(-8,-1, 70))),  n, r, 'cole')
 
 
 

@@ -131,7 +131,7 @@ def C_group(d, nu,m):
     return np.triu(D,0) + np.triu(D,1).T
 
 
-def run(kappa_const, lik_type ,obs_per_graph, asset_type, temp):
+def run(kappa_const, lik_type ,obs_per_graph, asset_type, temp, groups_id = None):
     # parameters
     l = 60
     #base_kappa = 0.9
@@ -149,7 +149,7 @@ def run(kappa_const, lik_type ,obs_per_graph, asset_type, temp):
         #log_returns = data['log_returns']
         log_returns_scaled = data['log_returns_scaled']
         price = data['price']
-        groups = data['groups']
+        groups = data[groups_id]
 
         name = f'{lik_type}_nr_quad_{nr_quad}_ind_30'
     else:
@@ -160,7 +160,7 @@ def run(kappa_const, lik_type ,obs_per_graph, asset_type, temp):
         #log_returns = data['log_returns']
         log_returns_scaled = data['log_returns_scaled']
         price = data['price']
-        groups = data['groups']
+        groups = data[groups_id]
         name = f'{lik_type}_nr_quad_{nr_quad}_{asset_type}_k_{kappa_const}'
 
 
@@ -266,7 +266,7 @@ def run(kappa_const, lik_type ,obs_per_graph, asset_type, temp):
             
 
             mu = np.mean(log_returns_scaled.iloc[lwr:i],axis = 0)
-            pbar.set_description(f" {lik_type}  {temp} i {i}, alpha {alpha}, kappa {kappa_const} shape {np.array(log_returns_scaled[lwr:i]-mu).shape}")
+            pbar.set_description(f" {lik_type}  {temp} i {i}, alpha {alpha}, kappa {kappa_const} shape {np.array(log_returns_scaled[lwr:i]-mu).shape} group_id {groups_id}")
             
             if np.isin(lik_type, ['group-t', 'skew-group-t']): 
                 max_iter = 30  
@@ -281,7 +281,7 @@ def run(kappa_const, lik_type ,obs_per_graph, asset_type, temp):
                                             groups = groups
                                             )
                 dg_opt.fit(temporal_penalty = temp, 
-                           nr_workers=3,
+                           nr_workers=5,
                            max_admm_iter = 20,
                            p_node_tol= 1e-4, 
                            p_node_max_iter = 500, 
@@ -304,7 +304,7 @@ def run(kappa_const, lik_type ,obs_per_graph, asset_type, temp):
                                             )
                 dg_opt.fit(temporal_penalty = temp, 
                            max_admm_iter = 20,
-                           nr_workers=3,
+                           nr_workers=5,
                            p_node_tol= 1e-4, 
                            p_node_max_iter = 500, 
                            bwr_xtol = 1e-4,
@@ -460,7 +460,7 @@ def run(kappa_const, lik_type ,obs_per_graph, asset_type, temp):
                         'sharpes_m':sharpes_m,  'mdds_m':mdds_m,   'ws_m':ws_m, 'mus_m':mus_m, 'vars_m':vars_m, 'rs_m':rs_m, 
                         'omegas_m':omegas_m,'port_price_m':port_price_m, 'sigmas_m':sigmas_m}
         
-        with open(f'data/{name}_{temp}3.pkl', 'wb') as handle:
+        with open(f'data/{name}_{temp}_{groups_id}.pkl', 'wb') as handle:
             pickle.dump(out_dict, handle, protocol=pickle.HIGHEST_PROTOCOL)
 
 
@@ -475,8 +475,12 @@ if __name__ == "__main__":
 
             #run(k, 't', n, 'etf', 'element-wise')
             #run(k, 'gaussian', n, 'etf', 'element-wise')
-            run(k, 'group-t', n, 'etf', 'element-wise')
-            run(k, 'skew-group-t', n, 'etf', 'element-wise')
+            run(k, 'group-t', n, 'etf', 'element-wise', groups_id='groups_2')
+            run(k, 'skew-group-t', n, 'etf', 'element-wise', groups_id='groups_2')
+            #run(k, 'group-t', n, 'etf', 'element-wise', groups_id='groups_2')
+            #run(k, 'skew-group-t', n, 'etf', 'element-wise', groups_id='groups_2')
+            #run(k, 'group-t', n, 'etf', 'element-wise', groups_id='groups_3')
+            #run(k, 'skew-group-t', n, 'etf', 'element-wise', groups_id='groups_3')
             
             #run(k, 'gaussian', n, 'etf', 'ridge')
             #run(k, 't', n, 'etf', 'ridge')
@@ -485,10 +489,10 @@ if __name__ == "__main__":
             #run(k, 't', n, 'etf', 'global-reconstruction')
 
             #run(k, 'gaussian', n, 'etf', 'block-wise-reconstruction')
-            run(k, 't', n, 'etf', 'block-wise-reconstruction')
+            #run(k, 't', n, 'etf', 'block-wise-reconstruction')
 
             #run(k, 'gaussian', n, 'etf', 'perturbed-node')
-            run(k, 't', n, 'etf', 'perturbed-node')
+            #run(k, 't', n, 'etf', 'perturbed-node')
 
 
 
